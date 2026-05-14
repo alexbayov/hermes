@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -u
+ROOT=/home/alex/hermes
+for p in "$ROOT" "$ROOT/core" "$ROOT/profile" "$ROOT/memory" "$ROOT/bin" "$ROOT/docs" "$ROOT/logs" "$ROOT/runtime" "$ROOT/backups"; do
+  [ -e "$p" ] && echo "OK   $p" || echo "FAIL $p"
+done
+for f in "$ROOT/CLAUDE.md" "$ROOT/AGENTS.md" "$ROOT/profile/SOUL.md" "$ROOT/profile/config.yaml" "$ROOT/bin/hermes-clean" "$ROOT/memory/README.md"; do
+  [ -f "$f" ] && echo "OK   $f" || echo "FAIL $f"
+done
+echo
+command -v hermes && hermes --help | head -5 || echo "FAIL hermes command not found"
+echo
+grep -q 'vault_path: /home/alex/hermes/memory' "$ROOT/profile/config.yaml" && echo "OK   clean memory path" || echo "FAIL wrong vault_path"
+grep -q 'HERMES_HOME=/home/alex/hermes/profile' "$ROOT/bin/hermes-clean" && echo "OK   clean HERMES_HOME" || echo "FAIL wrong HERMES_HOME"
