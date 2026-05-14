@@ -11,4 +11,5 @@ if [ -f "$HERMES_HOME/.env" ]; then
 fi
 
 cd /home/alex/hermes/core
-exec hermes --tui
+source .venv/bin/activate
+exec python -m hermes_cli.main --tui
