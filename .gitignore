@@ -1,0 +1,17 @@
+core/
+logs/
+runtime/
+backups/
+profile/.env
+profile/sessions/
+profile/cache/
+profile/.cache/
+profile/logs/
+profile/tmp/
+profile/state/
+profile/*.db
+profile/*.sqlite
+profile/*.sqlite3
+*.log
+*.pid
+*.sock

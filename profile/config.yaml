@@ -1,0 +1,24 @@
+vault_path: /home/alex/hermes/memory
+
+model:
+  provider: fireworks
+  model: accounts/fireworks/models/deepseek-v4-pro
+
+fallback_model:
+  provider: fireworks
+  model: accounts/fireworks/models/kimi-k2p6
+
+display:
+  language: ru
+  personality: direct
+
+platform_toolsets:
+  cli:
+    - file
+    - web
+    - skills
+    - memory
+    - todo
+    - terminal
+    - clarify
+    - session_search

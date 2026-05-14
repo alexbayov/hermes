@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export HERMES_HOME=/home/alex/hermes/profile
+export HERMES_TUI_TOOLSETS=file,web,skills,memory,todo,terminal,clarify,session_search
+
+if [ -f "$HERMES_HOME/.env" ]; then
+  set -a
+  . "$HERMES_HOME/.env"
+  set +a
+fi
+
+cd /home/alex/hermes/core
+exec hermes --tui
