@@ -2,16 +2,27 @@ core/
 logs/
 runtime/
 backups/
-profile/.env
-profile/sessions/
-profile/cache/
-profile/.cache/
-profile/logs/
-profile/tmp/
-profile/state/
-profile/*.db
-profile/*.sqlite
-profile/*.sqlite3
 *.log
 *.pid
 *.sock
+
+# secrets
+.env
+*.env
+profile/.env
+
+# profile: track only stable config/prompt
+profile/**
+!profile/
+!profile/SOUL.md
+!profile/config.yaml
+
+# memory content is private by default; keep only structure
+memory/**
+!memory/
+!memory/README.md
+!memory/**/
+!memory/**/.gitkeep
+
+# optional/manual launchers not confirmed yet
+bin/hermes-gateway

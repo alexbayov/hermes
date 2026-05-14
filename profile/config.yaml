@@ -1,12 +1,10 @@
 vault_path: /home/alex/hermes/memory
 
 model:
-  provider: fireworks
-  model: accounts/fireworks/models/deepseek-v4-pro
-
-fallback_model:
-  provider: fireworks
-  model: accounts/fireworks/models/kimi-k2p6
+  provider: custom
+  base_url: https://api.fireworks.ai/inference/v1
+  default: accounts/fireworks/models/deepseek-v4-pro
+  api_mode: chat_completions
 
 display:
   language: ru

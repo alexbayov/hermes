@@ -10,6 +10,12 @@ if [ -f "$HERMES_HOME/.env" ]; then
   set +a
 fi
 
+# Hermes custom OpenAI-compatible endpoints read OPENAI_API_KEY.
+# For Fireworks, keep the real key named FIREWORKS_API_KEY in .env and alias it only at runtime.
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${FIREWORKS_API_KEY:-}" ]; then
+  export OPENAI_API_KEY="$FIREWORKS_API_KEY"
+fi
+
 cd /home/alex/hermes/core
 source .venv/bin/activate
 exec python -m hermes_cli.main --tui
