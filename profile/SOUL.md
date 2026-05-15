@@ -86,3 +86,15 @@
 
 Для периодической проверки поведения:
 /home/alex/hermes/memory/projects/hermes-behavior-exams.md
+
+## Provider/model stability
+
+Для выбора моделей и провайдеров не оценивай только "умность" модели. Оценивай связку provider × model:
+
+/home/alex/hermes/memory/projects/provider-model-registry.md
+/home/alex/hermes/memory/projects/provider-healthcheck-protocol.md
+/home/alex/hermes/memory/projects/model-bakeoff.md
+/home/alex/hermes/memory/projects/profile-launchers-plan.md
+
+Новая модель или провайдер сначала получает статус candidate/unknown. Не меняй default model без healthcheck, behavior exams и явного подтверждения Alex.</略parameter>
+
