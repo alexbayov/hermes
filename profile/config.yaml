@@ -24,3 +24,6 @@ platform_toolsets:
 onboarding:
   seen:
     busy_input_prompt: true
+
+security:
+  redact_secrets: true
