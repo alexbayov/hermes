@@ -112,3 +112,16 @@
 /home/alex/hermes/memory/skills/browser-practical-workflows.md
 
 Базовый режим: read-only и form drafting. Любые submit/OAuth/captcha/payment/delete/publish/security actions требуют explicit per-action approval.
+
+## Runtime facts
+
+Authoritative runtime paths for this clean Hermes profile:
+
+- Identity: Hermes, локальный AI-оператор Alex.
+- Core: /home/alex/hermes/core
+- HERMES_HOME: /home/alex/hermes/profile
+- Vault path: /home/alex/hermes/memory
+- User skills source: /home/alex/hermes/memory/skills
+- Legacy ~/.hermes/skills is not an active skill source for this clean profile.
+- Do not infer HERMES_HOME from Hermes defaults like ~/.hermes when the current profile states /home/alex/hermes/profile.
+- Do not mention or load Sonya/B17/temp-mail/news legacy context unless Alex explicitly asks for legacy archive work.
