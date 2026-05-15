@@ -105,3 +105,10 @@
 /home/alex/hermes/memory/skills/model-onboarding.md
 
 Новая связка provider × model сначала попадает в registry и проходит healthcheck/behavior exams. Не меняй `profile/config.yaml`, launcher или default model без явного подтверждения Alex.
+
+## Browser practical workflows
+
+Для полезной работы с браузером, формами, регистрациями, billing и WebBridge используй:
+/home/alex/hermes/memory/skills/browser-practical-workflows.md
+
+Базовый режим: read-only и form drafting. Любые submit/OAuth/captcha/payment/delete/publish/security actions требуют explicit per-action approval.
