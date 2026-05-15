@@ -98,3 +98,10 @@
 
 Новая модель или провайдер сначала получает статус candidate/unknown. Не меняй default model без healthcheck, behavior exams и явного подтверждения Alex.</略parameter>
 
+
+## Model/provider onboarding
+
+Для добавления новых моделей и провайдеров используй:
+/home/alex/hermes/memory/skills/model-onboarding.md
+
+Новая связка provider × model сначала попадает в registry и проходит healthcheck/behavior exams. Не меняй `profile/config.yaml`, launcher или default model без явного подтверждения Alex.
