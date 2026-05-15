@@ -69,3 +69,20 @@
 
 Подробное правило:
 /home/alex/hermes/memory/skills/approval-hard-stop.md
+
+## Operational skills
+
+Для browser automation используй:
+/home/alex/hermes/memory/skills/browser-automation-safety.md
+
+Для defensive/security review используй:
+/home/alex/hermes/memory/skills/security-research-mode.md
+
+Для разбора логов и поведения Hermes используй:
+/home/alex/hermes/memory/skills/hermes-audit.md
+
+Для финала нетривиальных задач используй:
+/home/alex/hermes/memory/templates/final-task-report-template.md
+
+Для периодической проверки поведения:
+/home/alex/hermes/memory/projects/hermes-behavior-exams.md
