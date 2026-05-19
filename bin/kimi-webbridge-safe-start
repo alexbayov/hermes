@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BIN=/home/alex/.kimi-webbridge/bin/kimi-webbridge
+BACKUP=/etc/hosts.kimi-webbridge-safe.bak
+STAMP=/home/alex/.kimi-webbridge/hosts-block-active
+
+if [ ! -x "$BIN" ]; then
+  echo "Missing executable: $BIN" >&2
+  exit 2
+fi
+
+if pgrep -f '/home/alex/.kimi-webbridge/bin/kimi-webbridge run' >/dev/null; then
+  echo "Refusing: kimi-webbridge daemon already running. Stop it first." >&2
+  exit 3
+fi
+
+if [ -e "$STAMP" ]; then
+  echo "Refusing: previous hosts block stamp exists: $STAMP" >&2
+  echo "Run /home/alex/hermes/bin/kimi-webbridge-safe-stop and inspect /etc/hosts." >&2
+  exit 4
+fi
+
+sudo cp /etc/hosts "$BACKUP"
+sudo python3 - <<'PY'
+from pathlib import Path
+p = Path('/etc/hosts')
+s = p.read_text()
+block = '''
+# BEGIN kimi-webbridge telemetry block SAFE
+127.0.0.1 gator.volces.com
+127.0.0.1 mcs.tobsnssdk.com
+127.0.0.1 mcs.ctobsnssdk.com
+# END kimi-webbridge telemetry block SAFE
+'''
+if 'BEGIN kimi-webbridge telemetry block SAFE' not in s:
+    p.write_text(s.rstrip() + '\n' + block)
+PY
+mkdir -p /home/alex/.kimi-webbridge
+touch "$STAMP"
+
+"$BIN" start --addr 127.0.0.1:10086
+sleep 2
+"$BIN" status
+ss -ltnp 2>/dev/null | rg ':10086' || true

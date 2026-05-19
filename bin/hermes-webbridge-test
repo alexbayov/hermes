@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export HERMES_HOME=/home/alex/hermes/profiles/webbridge-test
+export HERMES_TUI_TOOLSETS=file,web,skills,memory,todo,terminal,clarify,session_search
+export HERMES_REDACT_SECRETS=true
+
+if [ -f /home/alex/hermes/profile/.env ]; then
+  set -a
+  . /home/alex/hermes/profile/.env
+  set +a
+fi
+
+if [ -n "${FIREWORKS_API_KEY_2:-}" ]; then
+  export OPENAI_API_KEY="$FIREWORKS_API_KEY_2"
+elif [ -n "${FIREWORKS_API_KEY:-}" ]; then
+  export OPENAI_API_KEY="$FIREWORKS_API_KEY"
+else
+  echo "Missing FIREWORKS_API_KEY_2 or FIREWORKS_API_KEY" >&2
+  exit 2
+fi
+
+cd /home/alex/hermes/core
+source .venv/bin/activate
+exec python -m hermes_cli.main --tui

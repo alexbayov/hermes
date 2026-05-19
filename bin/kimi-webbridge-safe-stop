@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BIN=/home/alex/.kimi-webbridge/bin/kimi-webbridge
+BACKUP=/etc/hosts.kimi-webbridge-safe.bak
+STAMP=/home/alex/.kimi-webbridge/hosts-block-active
+
+if [ -x "$BIN" ]; then
+  "$BIN" stop 2>/dev/null || true
+fi
+sleep 1
+
+if [ -f "$BACKUP" ]; then
+  sudo cp "$BACKUP" /etc/hosts
+  sudo rm -f "$BACKUP"
+fi
+rm -f "$STAMP"
+
+pgrep -af 'kimi-webbridge' || true
+ss -ltnp 2>/dev/null | rg ':10086' || true
