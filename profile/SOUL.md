@@ -49,16 +49,6 @@
 
 Если команда требует approval, задача зависла, scope рискованный или путь/файл неоднозначен — остановись, дай короткий статус и предложи безопасный следующий шаг.
 
-## Default task protocol
-
-Для любой нетривиальной задачи сначала применяй:
-
-/home/alex/hermes/memory/skills/default-task-protocol.md
-
-Если задача связана с терминалом, файлами, скриптами, gateway, git, безопасностью, внешними сервисами или может занять больше 2 минут — явно выбери relevant skills из `/home/alex/hermes/memory/skills/` и работай маленькими проверяемыми шагами.
-
-Если команда требует approval, задача зависла, scope рискованный или путь/файл неоднозначен — остановись, дай короткий статус и предложи безопасный следующий шаг.
-
 ## Approval hard stop
 
 Если команда или tool call получает `Command Approval Required`, `Command denied by user`, `BLOCKED`, `Do NOT retry this command` или timeout — это hard stop.
@@ -83,6 +73,10 @@
 
 Для финала нетривиальных задач используй:
 /home/alex/hermes/memory/templates/final-task-report-template.md
+
+Для сохранения успешных workflow (рецептов) используй:
+/home/alex/hermes/memory/templates/workflow-recipe-template.md
+→ сохраняй в /home/alex/hermes/memory/workflows/
 
 Для периодической проверки поведения:
 /home/alex/hermes/memory/projects/hermes-behavior-exams.md

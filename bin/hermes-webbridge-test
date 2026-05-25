@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
+# Hermes WebBridge Test Launcher
+# Uses browser-safe toolset (read-only first, interactive with approval gate).
+# WebBridge daemon is NOT started by this launcher — start it separately with:
+#   ~/.kimi-webbridge/bin/kimi-webbridge start
+# Then verify with:
+#   ss -ltnp | rg ':10086'
 set -euo pipefail
 
 export HERMES_HOME=/home/alex/hermes/profiles/webbridge-test
-export HERMES_TUI_TOOLSETS=file,web,skills,memory,todo,terminal,clarify,session_search
 export HERMES_REDACT_SECRETS=true
 
+# Source API keys from canonical profile
 if [ -f /home/alex/hermes/profile/.env ]; then
   set -a
   . /home/alex/hermes/profile/.env
   set +a
 fi
 
+# Pick a working Fireworks key
 if [ -n "${FIREWORKS_API_KEY_2:-}" ]; then
   export OPENAI_API_KEY="$FIREWORKS_API_KEY_2"
 elif [ -n "${FIREWORKS_API_KEY:-}" ]; then
@@ -18,6 +25,14 @@ elif [ -n "${FIREWORKS_API_KEY:-}" ]; then
 else
   echo "Missing FIREWORKS_API_KEY_2 or FIREWORKS_API_KEY" >&2
   exit 2
+fi
+
+# ── Pre-flight safety check ──────────────────────────────────────────
+# Warn if WebBridge daemon is NOT running — browser tools won't work
+if ! ss -ltnp 2>/dev/null | grep -q ':10086'; then
+  echo "⚠️  WebBridge daemon is NOT running on :10086"
+  echo "   Start with: ~/.kimi-webbridge/bin/kimi-webbridge start"
+  echo "   Then re-run this launcher or proceed at your own risk."
 fi
 
 cd /home/alex/hermes/core
