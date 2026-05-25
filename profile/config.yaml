@@ -1,3 +1,4 @@
+_config_lock: true
 vault_path: /home/alex/hermes/memory
 
 model:
