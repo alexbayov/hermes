@@ -36,6 +36,11 @@ Hermes уже имеет чистый профиль, минимальный `pr
 | HUP-11 | P3 | Skill priority system | TODO | Skills Librarian | User skills must override bundled skills |
 | HUP-12 | P4 | Hermes Desktop feasibility | READY | Desktop Integration Engineer | Сделать isolated install/adopt test без записи в clean profile |
 | HUP-13 | P4 | Desktop safe adoption | BLOCKED | Desktop Integration Engineer | Ждать HUP-01/HUP-03/HUP-06/HUP-12 |
+| HUP-14 | P2 | Logs-first debugging | TODO | Observability Engineer | Научить Hermes сначала читать gateway/TUI/core logs |
+| HUP-15 | P2 | Session summary protocol | TODO | State Engineer | Финальный отчёт по задаче + next resume point |
+| HUP-16 | P2 | Safe script review | TODO | Core Safety Engineer | Классифицировать scripts перед запуском |
+| HUP-17 | P2 | Memory vault usage | TODO | Skills Librarian | Научить пользоваться memory folders predictably |
+| HUP-18 | P2 | Manual behavior exams | TODO | QA Engineer | 6 ручных экзаменов до executable tests |
 
 ## Implemented now
 
@@ -58,6 +63,7 @@ Hermes уже имеет чистый профиль, минимальный `pr
 - WebBridge test profile should not be treated as production-ready.
 - Hermes Desktop should not be pointed at the main clean profile until its write behavior is verified.
 - Core changes are not safe while `core/` is only local and ignored.
+- Logs-first debugging, final session summaries, safe script review, memory vault usage and manual exams need explicit protocols.
 
 ## Recommended next PR
 

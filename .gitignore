@@ -1,3 +1,7 @@
+# HUP-00A warning:
+# Do not keep custom Hermes core patches only as ignored local files.
+# If /home/alex/hermes/core contains custom work, choose a tracked core fork,
+# tracked subtree/submodule, or make a timestamped backup before git operations.
 core/
 logs/
 runtime/

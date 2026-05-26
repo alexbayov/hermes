@@ -684,3 +684,166 @@ Start with remote mode or isolated lab mode. Avoid full migration until Desktop 
 - Desktop-created files are either isolated or intentionally mapped.
 - Rollback path is documented.
 - Browser/WebBridge risky actions still require approval.
+
+---
+
+## HUP-14 — Logs-first debugging
+
+Status: `TODO`
+Priority: `P2`
+Owner role: `Observability Engineer`
+Depends on: HUP-00A
+
+### Problem
+
+Agents can waste time guessing instead of reading Hermes logs first.
+
+### Required behavior
+
+For gateway/TUI/core failures, start from logs before changing code or config.
+
+### Expected log sources
+
+Document and verify actual live paths, likely:
+
+```text
+/home/alex/hermes/logs/
+/home/alex/hermes/runtime/
+/home/alex/hermes/profile/
+gateway logs from TUI/Desktop if enabled
+```
+
+### Acceptance criteria
+
+- A `logs-first-debugging` skill or doc exists.
+- Handoff says where to look first.
+- Final report cites which logs were checked.
+- No secrets are printed into reports.
+
+---
+
+## HUP-15 — Session summary protocol
+
+Status: `TODO`
+Priority: `P2`
+Owner role: `State Engineer`
+Depends on: HUP-04, HUP-05
+
+### Problem
+
+Long Hermes tasks need a durable final summary so the next agent can resume without reloading all chat context.
+
+### Required behavior
+
+At the end of every non-trivial task, write a short summary with:
+
+- goal;
+- completed steps;
+- files changed;
+- tests/checks run;
+- blockers;
+- next safe step;
+- approvals needed;
+- links to commits/PRs/logs.
+
+### Proposed path
+
+```text
+/home/alex/hermes/memory/tasks/<date>-<slug>.md
+```
+
+### Acceptance criteria
+
+- Final report template exists.
+- New Devin can resume from summary and task-state.
+- Summary contains no secrets.
+
+---
+
+## HUP-16 — Safe script review
+
+Status: `TODO`
+Priority: `P2`
+Owner role: `Core Safety Engineer`
+Depends on: HUP-03
+
+### Problem
+
+Hermes may run scripts without first classifying risk.
+
+### Required behavior
+
+Before running unknown scripts, classify:
+
+| Class | Examples | Required action |
+| --- | --- | --- |
+| read-only | status, diagnostics, grep-like checks | can run |
+| local-write | formatters, generators, config writes | explain first |
+| network-write | deploy, publish, upload, API mutation | approval |
+| destructive | delete, reset, clean, migration, payment | explicit approval |
+
+### Acceptance criteria
+
+- A `safe-script-review` skill/doc exists.
+- Terminal/tool execution checks this protocol.
+- Destructive scripts trigger hard-stop/approval.
+
+---
+
+## HUP-17 — Memory vault usage
+
+Status: `TODO`
+Priority: `P2`
+Owner role: `Skills Librarian`
+Depends on: HUP-04
+
+### Problem
+
+Hermes needs predictable use of `/home/alex/hermes/memory` folders.
+
+### Required behavior
+
+Define what goes where:
+
+```text
+memory/projects/   long-running project plans
+memory/tasks/      task summaries and resume points
+memory/skills/     stable reusable procedures
+memory/workflows/  proven recipes
+memory/inbox/      unsorted input
+memory/archive/    old/disabled context
+```
+
+### Acceptance criteria
+
+- Memory vault guide exists.
+- Agents do not dump all notes into one folder.
+- Legacy archive is not loaded unless Alex asks.
+
+---
+
+## HUP-18 — Manual behavior exams
+
+Status: `TODO`
+Priority: `P2`
+Owner role: `QA Engineer`
+Depends on: HUP-03, HUP-04, HUP-06
+
+### Problem
+
+Executable behavior exams are ideal, but manual exams are needed sooner.
+
+### Six manual exams
+
+1. Approval denial hard-stop.
+2. No retry via alternate tool.
+3. Locked config stays minimal after TUI write.
+4. Restart/resume task-state.
+5. Browser/WebBridge blocked action halts.
+6. Secret generated during registration is not written to markdown/logs.
+
+### Acceptance criteria
+
+- Manual exam checklist exists.
+- Each exam has pass/fail notes.
+- Failed exam becomes a HUP card or bug.

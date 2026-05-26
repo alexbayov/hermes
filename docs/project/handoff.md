@@ -9,15 +9,24 @@ Use this file when Alex asks to continue Hermes upgrade work.
    - `profile/SOUL.md`;
    - `docs/project/status.md`;
    - the relevant card in `docs/project/backlog.md`.
-2. Check repo state:
+2. If working on Alex's machine, verify core preservation before any git operation:
+
+```bash
+git -C /home/alex/hermes status -sb
+git -C /home/alex/hermes ls-files core | sed -n '1,20p'
+git -C /home/alex/hermes check-ignore -v core 2>/dev/null || true
+```
+
+If `core/` is ignored/untracked and may contain custom work, stop and do HUP-00A first.
+3. Check repo state:
 
 ```bash
 git status --short
 git log --oneline -10
 ```
 
-3. Do not assume live core is committed here. This repo may intentionally ignore `core/`.
-4. If the task needs core changes, inspect `/home/alex/hermes/core` on Alex's machine or the provided export.
+4. Do not assume live core is committed here. This repo may intentionally ignore `core/`.
+5. If the task needs core changes, inspect `/home/alex/hermes/core` on Alex's machine or the provided export.
 
 ## Choose next work
 

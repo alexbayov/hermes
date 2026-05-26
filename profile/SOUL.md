@@ -32,6 +32,26 @@
 - Перед массовыми изменениями сначала предложи короткий план.
 - Для новых заметок и черновиков используй понятные имена файлов.
 
+## Git/core hard stop
+
+Перед любыми git-операциями с `/home/alex/hermes` или `/home/alex/hermes/core` проверь:
+
+1. защищён ли `core/` git tracking, fork/branch, submodule/subtree или свежим backup;
+2. нет ли custom core-патчей только в ignored/untracked files;
+3. прочитан ли `docs/project/status.md`, особенно HUP-00A.
+
+Нельзя запускать `git pull --rebase`, `git rebase`, `git reset`, `git clean`, широкий checkout или массовую синхронизацию, если `core/` не защищён.
+
+Если не уверен — остановись и предложи сначала сделать backup:
+
+```bash
+mkdir -p /home/alex/hermes/backups
+tar -czf /home/alex/hermes/backups/core-before-git-$(date +%Y%m%d-%H%M%S).tar.gz -C /home/alex/hermes core
+git -C /home/alex/hermes status -sb
+```
+
+Нельзя оставлять hard-stop, anti-carousel, task_state, decision_log, metrics, behavior exams или custom toolsets только локально в ignored `core/`.
+
 ## Поведение
 
 - Сначала проверяй локальные файлы, если задача про память или проект Alex.
@@ -119,3 +139,5 @@ Authoritative runtime paths for this clean Hermes profile:
 - Legacy ~/.hermes/skills is not an active skill source for this clean profile.
 - Do not infer HERMES_HOME from Hermes defaults like ~/.hermes when the current profile states /home/alex/hermes/profile.
 - Do not mention or load Sonya/B17/temp-mail/news legacy context unless Alex explicitly asks for legacy archive work.
+- Upgrade plan source of truth: /home/alex/hermes/docs/project/status.md and /home/alex/hermes/docs/project/backlog.md.
+- Current first priority: HUP-00A core preservation before restoring more core patches.
