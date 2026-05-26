@@ -53,6 +53,8 @@ Desktop is promising, but it writes config/env/state under HERMES_HOME and expec
 
 - One card = one PR.
 - Small diff.
+- Every PR must use `.github/PULL_REQUEST_TEMPLATE.md`.
+- Every PR should be reviewed by Hermes PR Inspector using `docs/project/pr-quality-gate.md`.
 - Update `docs/project/status.md` and `docs/project/backlog.md` in the same PR when status changes.
 - Include tests/verification in PR body.
 - Do not claim a card is `DONE` without acceptance criteria.

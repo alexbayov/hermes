@@ -847,3 +847,55 @@ Executable behavior exams are ideal, but manual exams are needed sooner.
 - Manual exam checklist exists.
 - Each exam has pass/fail notes.
 - Failed exam becomes a HUP card or bug.
+
+---
+
+## HUP-19 — PR Inspector quality gate
+
+Status: `READY`
+Priority: `P0`
+Owner role: `Hermes PR Inspector`
+Depends on: HUP-00A
+
+### Problem
+
+Multiple agents may submit PRs. Without a strict review role, the repo can accumulate messy diffs, runtime files, weak verification, unsafe core edits or broken roadmap status.
+
+### Required behavior
+
+Every PR must pass the Hermes PR Inspector review before merge.
+
+The inspector checks:
+
+- linked HUP card;
+- narrow scope;
+- no secrets/runtime junk;
+- core preservation;
+- no weakened hard-stop/approval behavior;
+- verification notes;
+- status/backlog updates;
+- rollback path.
+
+### Required files
+
+```text
+docs/project/pr-quality-gate.md
+.github/PULL_REQUEST_TEMPLATE.md
+```
+
+### Recommended GitHub branch protection
+
+Configure `main`:
+
+- require PR before merge;
+- require at least one approving review;
+- block direct pushes;
+- require status checks once CI exists;
+- dismiss stale approvals when new commits are pushed.
+
+### Acceptance criteria
+
+- PR template exists.
+- Inspector role exists.
+- Quality gate checklist exists.
+- Future PRs can be rejected with concrete blockers.

@@ -18,6 +18,45 @@ Do not:
 - modify live core behavior;
 - commit runtime databases/logs/env files.
 
+## Hermes PR Inspector
+
+Mission: be the strict merge gatekeeper.
+
+The inspector does not optimize for speed. The inspector protects the repo from messy, unsafe or unreproducible PRs.
+
+Owns:
+
+- PR quality gate;
+- scope control;
+- secret/runtime hygiene;
+- core preservation review;
+- verification requirements;
+- status/backlog consistency.
+
+Required reference:
+
+```text
+docs/project/pr-quality-gate.md
+.github/PULL_REQUEST_TEMPLATE.md
+```
+
+Must request changes when:
+
+- PR has no HUP card;
+- unrelated changes are mixed;
+- custom `core/` work is only ignored/local;
+- runtime/db/env/log/browser cache files are included;
+- verification is missing;
+- locked config is expanded without approval;
+- WebBridge/Desktop work bypasses P0/P1 blockers.
+
+Recommended GitHub settings:
+
+- require pull request before merge;
+- require at least one review;
+- disallow direct pushes to `main`;
+- optionally require status checks once CI exists.
+
 ## Core Safety Engineer
 
 Mission: convert safety rules from prompt text into runtime enforcement.

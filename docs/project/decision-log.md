@@ -41,3 +41,11 @@ Decision: Add HUP-00A as an urgent P0 track before more custom core work.
 Reason: Alex reported that custom `core/` changes disappeared after a rebase/abort across histories where `core/` changed from tracked to gitignored. Even if some code can be recovered from old commits/backups, future control-layer work must not live only in ignored local files.
 
 Implication: Before restoring hard-stop, anti-carousel, task_state, decision_log, toolsets or behavior exams, choose a core preservation strategy: track `core/`, split a dedicated core fork/branch, use submodule/subtree, or at minimum enforce backup-before-git operations.
+
+## 2026-05-14 — Add Hermes PR Inspector role
+
+Decision: Add a strict PR review role and quality gate.
+
+Reason: Alex wants future agents to submit clean, safe, reviewable PRs instead of dumping messy or unsafe changes into the repo.
+
+Implication: Every future PR should link a HUP card, use the PR template, pass `docs/project/pr-quality-gate.md`, and be reviewed before merge. Direct pushes to `main` should be blocked through GitHub branch protection.

@@ -41,6 +41,7 @@ Hermes уже имеет чистый профиль, минимальный `pr
 | HUP-16 | P2 | Safe script review | TODO | Core Safety Engineer | Классифицировать scripts перед запуском |
 | HUP-17 | P2 | Memory vault usage | TODO | Skills Librarian | Научить пользоваться memory folders predictably |
 | HUP-18 | P2 | Manual behavior exams | TODO | QA Engineer | 6 ручных экзаменов до executable tests |
+| HUP-19 | P0 | PR Inspector quality gate | READY | Hermes PR Inspector | Проверять каждый PR перед merge |
 
 ## Implemented now
 
@@ -64,6 +65,7 @@ Hermes уже имеет чистый профиль, минимальный `pr
 - Hermes Desktop should not be pointed at the main clean profile until its write behavior is verified.
 - Core changes are not safe while `core/` is only local and ignored.
 - Logs-first debugging, final session summaries, safe script review, memory vault usage and manual exams need explicit protocols.
+- PRs need strict inspector review before merge.
 
 ## Recommended next PR
 
