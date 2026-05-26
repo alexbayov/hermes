@@ -48,7 +48,8 @@
 | `P1` | Control layer: hard-stop, state, recovery, anti-carousel |
 | `P2` | Observability и behavior exams |
 | `P3` | Browser/WebBridge/регистрационные workflow |
+| `P4` | Desktop GUI adoption after control layer is safe |
 
 ## Главный принцип
 
-Не развивать WebBridge, регистрации, billing и browser automation, пока `P1` control layer не закрыт.
+Не развивать WebBridge, регистрации, billing, browser automation и Desktop GUI как основной интерфейс, пока `P1` control layer не закрыт.

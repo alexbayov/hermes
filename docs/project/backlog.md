@@ -456,3 +456,140 @@ Hermes needs deterministic skill selection.
 - Skill discovery output shows source path and priority.
 - User skills override bundled skills with same name/domain.
 - Legacy Sonya/B17/temp-mail/news skills are not loaded by default.
+
+---
+
+## HUP-12 — Hermes Desktop feasibility
+
+Status: `READY`
+Priority: `P4`
+Owner role: `Desktop Integration Engineer`
+Depends on: HUP-00
+
+### Context
+
+Hermes Desktop is a native GUI companion:
+
+```text
+https://github.com/fathah/hermes-desktop
+```
+
+Upstream Desktop is promising for daily use, but it is not a drop-in replacement for Alex's clean Hermes layout.
+
+### Findings from upstream Desktop v0.5.x docs/source
+
+- Desktop local mode defaults to `~/.hermes`.
+- Desktop installer runs the official Hermes install script and expects:
+
+```text
+<HERMES_HOME>/hermes-agent
+<HERMES_HOME>/hermes-agent/venv
+<HERMES_HOME>/hermes-agent/hermes
+<HERMES_HOME>/config.yaml
+<HERMES_HOME>/.env
+<HERMES_HOME>/state.db
+<HERMES_HOME>/profiles/
+```
+
+- Desktop has a custom home adoption path via `HERMES_HOME`/override, but it validates the Desktop-style install layout.
+- Alex's clean Hermes layout is different:
+
+```text
+/home/alex/hermes/core
+/home/alex/hermes/profile
+/home/alex/hermes/memory
+/home/alex/hermes/bin
+```
+
+- Desktop writes additional files under `HERMES_HOME`, including `desktop.json`, `.env`, staging data, profile state and session DB.
+- Desktop can also use remote mode with an API URL/API key.
+
+### Recommended experiment
+
+Do not point Desktop at `/home/alex/hermes/profile` first.
+
+Use an isolated desktop home:
+
+```text
+/home/alex/hermes-desktop-lab
+```
+
+or use Desktop remote mode against a separately started clean Hermes API/gateway.
+
+### Test plan
+
+1. Install Desktop package for the OS.
+2. Launch with isolated environment:
+
+```bash
+HERMES_HOME=/home/alex/hermes-desktop-lab hermes-desktop
+```
+
+3. Let Desktop install/adopt Hermes only inside the lab path.
+4. Configure a non-sensitive test provider or local OpenAI-compatible endpoint.
+5. Verify chat works.
+6. Inspect files Desktop writes:
+
+```bash
+find /home/alex/hermes-desktop-lab -maxdepth 3 -type f | sort
+```
+
+7. Compare generated config shape with Alex's clean minimal config.
+8. Confirm Desktop can run without touching:
+
+```text
+/home/alex/hermes/profile
+/home/alex/hermes/memory
+/home/alex/hermes/core
+```
+
+### Acceptance criteria
+
+- Desktop runs in isolated lab home.
+- No changes to clean profile/memory/core.
+- File write inventory is documented.
+- Config write behavior is known.
+- Provider/API key storage behavior is known.
+- Decision made: remote-mode integration, adapter integration, or no adoption yet.
+
+---
+
+## HUP-13 — Hermes Desktop safe adoption
+
+Status: `BLOCKED`
+Priority: `P4`
+Owner role: `Desktop Integration Engineer`
+Depends on: HUP-01, HUP-03, HUP-06, HUP-12
+
+### Problem
+
+Desktop gives a friendly GUI, but it can also edit config, env, tools, skills, schedules, gateway and memory. That is valuable only after the control layer is safe.
+
+### Safe adoption options
+
+| Option | Description | Risk |
+| --- | --- | --- |
+| Remote mode | Desktop connects to clean Hermes API/gateway URL | Lowest |
+| Adapter mode | Add wrappers/symlinks so Desktop can see clean layout | Medium |
+| Full migration | Move clean Hermes into Desktop's expected `~/.hermes` layout | Highest |
+
+### Recommended direction
+
+Start with remote mode or isolated lab mode. Avoid full migration until Desktop behavior is proven.
+
+### Required safeguards before main-profile adoption
+
+- `_config_lock` enforcement is implemented.
+- Hard-stop enforcement is implemented.
+- Anti-carousel is implemented.
+- Desktop write behavior is tested.
+- Desktop provider key handling is tested.
+- Backup of clean profile/memory exists.
+
+### Acceptance criteria
+
+- Alex can open Desktop and chat with clean Hermes without profile contamination.
+- Desktop cannot silently expand locked `profile/config.yaml`.
+- Desktop-created files are either isolated or intentionally mapped.
+- Rollback path is documented.
+- Browser/WebBridge risky actions still require approval.

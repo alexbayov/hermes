@@ -136,3 +136,37 @@ Browser/WebBridge remains experimental until hard-stop and anti-carousel are enf
 - Do not add complex roles before control layer works.
 - Do not make browser automation the foundation of reliability.
 - Do not store secrets in memory markdown.
+
+## Desktop GUI integration
+
+Hermes Desktop should sit above the control layer, not replace it.
+
+Target safe shape:
+
+```text
+Hermes Desktop GUI
+  ↓ remote/local API
+Clean Hermes gateway/API
+  ↓
+Control layer
+  ↓
+Tools, memory, skills, schedules
+```
+
+Avoid this until proven safe:
+
+```text
+Hermes Desktop GUI
+  ↓ direct writes
+/home/alex/hermes/profile/config.yaml
+/home/alex/hermes/profile/.env
+/home/alex/hermes/profile/state.db
+```
+
+Reason: Desktop is designed around a `~/.hermes` home that contains the agent repo, venv, config, env, state DB and profiles. Alex's clean setup deliberately separates core, profile and memory.
+
+Preferred first adoption path:
+
+1. isolated Desktop lab home;
+2. remote-mode connection to clean Hermes API;
+3. only later consider adapter/full migration.

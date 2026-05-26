@@ -25,3 +25,11 @@ Decision: Treat `/home/alex/hermes/core` as upstream/external unless a card expl
 Reason: The current GitHub repo is a clean workspace/profile/control project, not necessarily a full vendored copy of Hermes core.
 
 Implication: Core PRs need special care and should cite exact core file paths.
+
+## 2026-05-14 — Treat Hermes Desktop as an integration track, not a simple upgrade
+
+Decision: Add Hermes Desktop adoption as `P4`, behind control-layer safety and an isolated feasibility test.
+
+Reason: Upstream Desktop is useful but local mode defaults to `~/.hermes`, expects a `hermes-agent/venv` layout under `HERMES_HOME`, and writes Desktop/config/env/state files under that home. Alex's clean Hermes layout separates `core`, `profile` and `memory`.
+
+Implication: First Desktop work should use an isolated lab home or remote-mode connection. Do not point Desktop directly at `/home/alex/hermes/profile` until config-lock, hard-stop and anti-carousel safeguards are implemented and Desktop write behavior is documented.

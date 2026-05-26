@@ -126,3 +126,46 @@ Owns:
 - source path display;
 - user skill override behavior;
 - legacy skill quarantine.
+
+## Desktop Integration Engineer
+
+Mission: evaluate and safely adopt Hermes Desktop without contaminating Alex's clean profile.
+
+Owns:
+
+- Hermes Desktop install/adoption tests;
+- isolated desktop lab profile;
+- remote-mode Desktop connection to clean Hermes API/gateway;
+- Desktop write inventory;
+- rollback plan.
+
+Key upstream:
+
+```text
+https://github.com/fathah/hermes-desktop
+```
+
+Important finding:
+
+Desktop local mode expects a `HERMES_HOME` shaped like:
+
+```text
+<HERMES_HOME>/hermes-agent
+<HERMES_HOME>/hermes-agent/venv
+<HERMES_HOME>/config.yaml
+<HERMES_HOME>/.env
+<HERMES_HOME>/state.db
+<HERMES_HOME>/profiles/
+```
+
+Alex's clean layout is different:
+
+```text
+/home/alex/hermes/core
+/home/alex/hermes/profile
+/home/alex/hermes/memory
+```
+
+Default rule:
+
+Do not point Desktop at `/home/alex/hermes/profile` until HUP-12 proves write behavior and HUP-01/HUP-03/HUP-06 are done.

@@ -34,6 +34,12 @@ If Alex asks for WebBridge before P1 is done, explain briefly:
 WebBridge is blocked by control-layer safety. Recommended next step: hard-stop enforcement first.
 ```
 
+If Alex asks for Hermes Desktop, do not suggest direct migration first. Use HUP-12:
+
+```text
+Desktop is promising, but it writes config/env/state under HERMES_HOME and expects a different layout. Recommended next step: isolated Desktop lab or remote-mode test.
+```
+
 ## PR rules
 
 - One card = one PR.
@@ -74,6 +80,29 @@ Do not use:
 ~/.hermes as active clean profile
 old Sonya/B17/AI News/editorial memory
 ```
+
+## Desktop integration warning
+
+Hermes Desktop local mode defaults to `~/.hermes` and expects:
+
+```text
+<HERMES_HOME>/hermes-agent
+<HERMES_HOME>/hermes-agent/venv
+<HERMES_HOME>/config.yaml
+<HERMES_HOME>/.env
+<HERMES_HOME>/state.db
+<HERMES_HOME>/profiles/
+```
+
+Alex's clean Hermes is split across `core/`, `profile/`, `memory/`, `bin/`.
+
+Safe first test:
+
+```text
+HERMES_HOME=/home/alex/hermes-desktop-lab
+```
+
+or Desktop remote mode to a clean Hermes API/gateway.
 
 ## Definition of done for upgrade tasks
 

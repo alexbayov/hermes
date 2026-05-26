@@ -32,6 +32,8 @@ Hermes уже имеет чистый профиль, минимальный `pr
 | HUP-09 | P3 | WebBridge safe profile | BLOCKED | Browser Workflow Engineer | Ждать HUP-03/HUP-06, затем включить guardrails |
 | HUP-10 | P3 | Registration/payment workflows | BLOCKED | Browser Workflow Engineer | Ждать HUP-04/HUP-05/HUP-09 |
 | HUP-11 | P3 | Skill priority system | TODO | Skills Librarian | User skills must override bundled skills |
+| HUP-12 | P4 | Hermes Desktop feasibility | READY | Desktop Integration Engineer | Сделать isolated install/adopt test без записи в clean profile |
+| HUP-13 | P4 | Desktop safe adoption | BLOCKED | Desktop Integration Engineer | Ждать HUP-01/HUP-03/HUP-06/HUP-12 |
 
 ## Implemented now
 
@@ -52,6 +54,7 @@ Hermes уже имеет чистый профиль, минимальный `pr
 - No anti-carousel runtime halt.
 - No executable behavior exams in this repo.
 - WebBridge test profile should not be treated as production-ready.
+- Hermes Desktop should not be pointed at the main clean profile until its write behavior is verified.
 
 ## Recommended next PR
 
@@ -60,3 +63,22 @@ Implement HUP-03 first:
 > If a tool result contains `Command Approval Required`, `Command denied by user`, `BLOCKED`, `Do NOT retry this command` or approval timeout, Hermes must stop the current tool/model loop, summarize status, and wait for Alex.
 
 This is the highest leverage fix because it turns the most important safety rule from prompt text into runtime behavior.
+
+## Desktop note
+
+Hermes Desktop (`github.com/fathah/hermes-desktop`) is promising, but should be treated as a separate integration track, not a simple upgrade.
+
+Observed from upstream Desktop docs/source:
+
+- local mode defaults to `~/.hermes`;
+- first-run installer runs the official Hermes install script and manages `~/.hermes/hermes-agent`;
+- Desktop can adopt a custom `HERMES_HOME` only if that home contains the layout it expects: `hermes-agent/venv/...` and `hermes-agent/hermes`;
+- Desktop writes `desktop.json`, `.env`, `config.yaml`, profile files, session DB and staging data under `HERMES_HOME`;
+- remote mode can connect to an API server without adopting local files.
+
+Therefore the safe order is:
+
+1. test Desktop on isolated `HERMES_HOME`, not `/home/alex/hermes/profile`;
+2. verify it does not expand or overwrite locked config;
+3. prefer remote-mode connection to clean Hermes gateway/API first;
+4. only then consider adopting the main clean profile.
