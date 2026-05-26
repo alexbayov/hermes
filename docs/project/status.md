@@ -6,13 +6,14 @@ Last updated: 2026-05-14
 
 Hermes уже имеет чистый профиль, минимальный `profile/config.yaml`, базовые launchers и prompt-level правила.
 
-Главный незакрытый риск: критические правила поведения пока в основном текстовые. Нужен code-enforced control layer:
+Главный незакрытый риск: `core/` содержит рабочие изменения, но может быть незащищён от git-операций, если он игнорируется и не хранится в отдельном tracked upstream/fork. Сначала нужно зафиксировать стратегию сохранения core, затем code-enforced control layer:
 
-1. hard-stop после tool result;
-2. persistent task-state;
-3. decision-log;
-4. anti-carousel/progress detector;
-5. behavior exams.
+1. tracked/forked `core/` или обязательный backup protocol;
+2. hard-stop после tool result;
+3. persistent task-state;
+4. decision-log;
+5. anti-carousel/progress detector;
+6. behavior exams.
 
 До закрытия этих пунктов WebBridge и registration/payment workflows считаются экспериментальными.
 
@@ -20,7 +21,8 @@ Hermes уже имеет чистый профиль, минимальный `pr
 
 | ID | Priority | Track | Status | Owner role | Next action |
 | --- | --- | --- | --- | --- | --- |
-| HUP-00 | P0 | Repo hygiene | DONE | Repo Steward | Поддерживать `.gitignore`, не коммитить runtime/secrets |
+| HUP-00 | P0 | Repo hygiene | PARTIAL | Repo Steward | Разделить hygiene для profile/runtime и preservation для core |
+| HUP-00A | P0 | Core preservation | READY | Repo Steward + Core Safety Engineer | Выбрать: track core, fork core или backup-before-git protocol |
 | HUP-01 | P0 | Config lock sentinel | PARTIAL | Core Safety Engineer | Реализовать enforcement в `core/tui_gateway/server.py` |
 | HUP-02 | P0 | HERMES_HOME propagation | TODO | Runtime Engineer | Проверить subprocess spawners и fallback на `~/.hermes` |
 | HUP-03 | P1 | Code-enforced hard-stop | TODO | Core Safety Engineer | Добавить проверку tool results в main loop |
@@ -43,7 +45,7 @@ Hermes уже имеет чистый профиль, минимальный `pr
 - `_config_lock: true` sentinel exists.
 - `security.redact_secrets: true` exists.
 - WebBridge test profile is isolated under `profiles/webbridge-test/`.
-- `core/`, logs, runtime, env files and database files are ignored by git policy.
+- logs, runtime, env files and database files are ignored by git policy.
 
 ## Not implemented yet
 
@@ -55,10 +57,15 @@ Hermes уже имеет чистый профиль, минимальный `pr
 - No executable behavior exams in this repo.
 - WebBridge test profile should not be treated as production-ready.
 - Hermes Desktop should not be pointed at the main clean profile until its write behavior is verified.
+- Core changes are not safe while `core/` is only local and ignored.
 
 ## Recommended next PR
 
-Implement HUP-03 first:
+Implement HUP-00A first:
+
+> Decide and enforce how `/home/alex/hermes/core` is preserved before any more custom core work.
+
+Only after HUP-00A is done, implement HUP-03:
 
 > If a tool result contains `Command Approval Required`, `Command denied by user`, `BLOCKED`, `Do NOT retry this command` or approval timeout, Hermes must stop the current tool/model loop, summarize status, and wait for Alex.
 

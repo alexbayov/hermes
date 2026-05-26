@@ -23,7 +23,7 @@ git log --oneline -10
 
 Default order:
 
-1. First unfinished `P0`.
+1. First unfinished `P0`, especially HUP-00A if `core/` is not protected.
 2. Then `P1`.
 3. Only then `P2`.
 4. Do not start `P3` browser/WebBridge work until P1 control layer is done.
@@ -59,6 +59,8 @@ Never commit:
 - runtime logs/sessions;
 - browser profiles/caches;
 - generated local reports with secrets.
+
+Never keep custom `core/` patches only as ignored local files. If a task changes `/home/alex/hermes/core`, the patch must be committed to a tracked core repo/branch or backed up before any git operation.
 
 If Hermes creates API keys during registration, store them only in local secret store or `.env`. Markdown may mention only variable names, not values.
 
@@ -113,3 +115,17 @@ A card is done only when:
 - relevant tests/exams pass or are documented as unavailable;
 - project docs status is updated;
 - Alex can understand the new state from `docs/project/status.md`.
+
+## If core files disappeared
+
+Do not panic and do not immediately rewrite the implementation from memory.
+
+First check:
+
+```bash
+git -C /home/alex/hermes reflog --date=iso | sed -n '1,80p'
+git -C /home/alex/hermes log --all --oneline -- core | sed -n '1,80p'
+find /home/alex/hermes/backups -maxdepth 4 -type f 2>/dev/null | sort | tail -80
+```
+
+Then recover candidate files into `/tmp` and diff them against current live core.

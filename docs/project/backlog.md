@@ -4,7 +4,7 @@ Each card should be implemented as a small PR. Do not combine unrelated cards un
 
 ## HUP-00 — Repo hygiene baseline
 
-Status: `DONE`
+Status: `PARTIAL`
 Priority: `P0`
 Owner role: `Repo Steward`
 
@@ -14,7 +14,8 @@ Keep the GitHub repo safe as a clean Hermes workspace, not a dump of local runti
 
 ### Current evidence
 
-- `.gitignore` excludes `core/`, `logs/`, `runtime/`, `backups/`, `.env`, `*.env`, `profile/.env`.
+- `.gitignore` excludes `logs/`, `runtime/`, `backups/`, `.env`, `*.env`, `profile/.env`.
+- Current `.gitignore` may exclude `core/`; that is no longer safe if `core/` contains custom Hermes changes.
 - `AGENTS.md` says not to commit secrets, logs, sqlite/db files, browser profiles or caches.
 
 ### Keep enforcing
@@ -32,6 +33,96 @@ Keep the GitHub repo safe as a clean Hermes workspace, not a dump of local runti
 - `git status --short` contains only intentional source/docs/profile files.
 - Secret scan has no real key values.
 - Runtime/db files remain untracked.
+- `core/` strategy is delegated to HUP-00A.
+
+---
+
+## HUP-00A — Core preservation strategy
+
+Status: `READY`
+Priority: `P0`
+Owner role: `Repo Steward + Core Safety Engineer`
+
+### Problem
+
+Custom Hermes behavior lives in `/home/alex/hermes/core`. If `core/` is gitignored and not tracked anywhere, local work can disappear during risky git operations, failed rebases, directory syncs, or manual recovery.
+
+Observed failure mode:
+
+1. Older remote state had `core/` tracked.
+2. New local state ignored `core/`.
+3. A rebase/abort crossed those histories.
+4. Git returned to a branch where `core/` was not tracked.
+5. Local custom core files were no longer protected by git.
+
+### What may have been lost
+
+The following items were reportedly implemented in `core/` but not committed/tracked:
+
+- hard-stop enforcement;
+- anti-carousel/progress detection;
+- task_state;
+- decision_log;
+- metrics;
+- behavior tests;
+- browser-safe / hermes-cli-safe toolsets.
+
+These are not unrecoverable as product concepts because the design is documented in this project plan. The exact previous code may be recoverable only if it exists in:
+
+- old remote commits;
+- local reflog;
+- local backups;
+- shell/editor history;
+- filesystem snapshots;
+- copied exports.
+
+### Options
+
+| Option | Description | Pros | Cons |
+| --- | --- | --- | --- |
+| Track `core/` in this repo | Remove `core/` from `.gitignore` and commit sanitized core | Simple deploy from one repo | Large repo; must avoid vendoring runtime/venv/cache |
+| Separate `hermes-core` fork | Keep profile repo separate; core changes live in a real fork/branch | Cleanest engineering model | Two repos to coordinate |
+| Git submodule/subtree | Profile repo references exact core commit | Reproducible | More git complexity |
+| Backup-only | Keep core ignored but auto-backup before git operations | Better than nothing | Not enough for collaboration/deploy |
+
+### Recommended decision
+
+Use a separate tracked core fork or branch for custom code, then reference its commit from this workspace repo.
+
+Minimum immediate fix if no fork yet:
+
+```bash
+tar -czf /home/alex/hermes/backups/core-before-git-$(date +%Y%m%d-%H%M%S).tar.gz -C /home/alex/hermes core
+git -C /home/alex/hermes status -sb
+```
+
+Before any `pull`, `rebase`, `checkout`, `reset`, `clean`, or export sync.
+
+### Immediate recovery checklist
+
+Run on Alex's machine:
+
+```bash
+git -C /home/alex/hermes reflog --date=iso | sed -n '1,80p'
+git -C /home/alex/hermes log --all --oneline -- core | sed -n '1,80p'
+find /home/alex/hermes -maxdepth 4 -type f \( -name '*task_state*' -o -name '*decision_log*' -o -name '*guardrail*' -o -name '*behavior*' \) | sort
+find /home/alex/hermes/backups -maxdepth 4 -type f 2>/dev/null | sort | tail -80
+```
+
+If old commits contain `core/`, recover candidate files with:
+
+```bash
+git -C /home/alex/hermes show <commit>:core/run_agent.py > /tmp/run_agent.py.candidate
+```
+
+Do not overwrite the live core until candidates are diffed.
+
+### Acceptance criteria
+
+- Alex chooses one core preservation model.
+- `core/` custom changes are tracked in git or backed up by an explicit pre-git protocol.
+- `AGENTS.md` documents the chosen model.
+- Future HUP core implementation PRs cannot exist only as untracked local files.
 
 ---
 

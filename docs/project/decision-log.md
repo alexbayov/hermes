@@ -33,3 +33,11 @@ Decision: Add Hermes Desktop adoption as `P4`, behind control-layer safety and a
 Reason: Upstream Desktop is useful but local mode defaults to `~/.hermes`, expects a `hermes-agent/venv` layout under `HERMES_HOME`, and writes Desktop/config/env/state files under that home. Alex's clean Hermes layout separates `core`, `profile` and `memory`.
 
 Implication: First Desktop work should use an isolated lab home or remote-mode connection. Do not point Desktop directly at `/home/alex/hermes/profile` until config-lock, hard-stop and anti-carousel safeguards are implemented and Desktop write behavior is documented.
+
+## 2026-05-14 — Core must not remain only as ignored local state
+
+Decision: Add HUP-00A as an urgent P0 track before more custom core work.
+
+Reason: Alex reported that custom `core/` changes disappeared after a rebase/abort across histories where `core/` changed from tracked to gitignored. Even if some code can be recovered from old commits/backups, future control-layer work must not live only in ignored local files.
+
+Implication: Before restoring hard-stop, anti-carousel, task_state, decision_log, toolsets or behavior exams, choose a core preservation strategy: track `core/`, split a dedicated core fork/branch, use submodule/subtree, or at minimum enforce backup-before-git operations.
