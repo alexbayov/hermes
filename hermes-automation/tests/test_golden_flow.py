@@ -151,3 +151,87 @@ def test_golden_onboarding_reset(sandbox_server, tmp_path):
         "verify_email",
         "onboarding",
     ]
+
+
+def test_redaction_password_not_in_checkpoint(sandbox_server, tmp_path):
+    """After a successful run, the checkpoint must NOT contain the password."""
+    import json
+
+    task_id = "test-redact-cp"
+    fields = {
+        "email": "qa-redact@example.test",
+        "first_name": "Redact",
+        "last_name": "Test",
+        "password": "SecretPass99!",
+    }
+
+    result = run_site_config(
+        str(SITE_CONFIG),
+        task_id=task_id,
+        fields=fields,
+        state_dir=str(tmp_path / "state"),
+        artifacts_dir=str(tmp_path / "artifacts"),
+        headless=True,
+        reset=True,
+        executable_path=CHROME_PATH,
+    )
+    assert result.success
+
+    cp_path = tmp_path / "state" / f"{task_id}.json"
+    assert cp_path.exists()
+    with open(cp_path) as f:
+        cp = json.load(f)
+
+    data = cp.get("data", {})
+    password_val = data.get("password", "")
+    assert "SecretPass99!" not in str(data), (
+        f"Plaintext password found in checkpoint data: {data}"
+    )
+    assert password_val == "***REDACTED***", (
+        f"Expected redacted password, got: {password_val}"
+    )
+
+
+def test_failure_on_broken_config(sandbox_server, tmp_path):
+    """Invalid YAML step (wrong selector) produces result.success=False."""
+    import yaml
+    from pathlib import Path
+
+    broken_yaml = {
+        "name": "broken_test",
+        "start_url": "http://localhost:8080/signup",
+        "browser": {"headless": True, "trace": False},
+        "fields_schema": {},
+        "steps": [
+            {
+                "id": "doomed_step",
+                "actions": [
+                    {
+                        "type": "click",
+                        "id": "nonexistent",
+                        "payload": {"role": "button", "name": "ThisButtonDoesNotExist"},
+                    }
+                ],
+                "success": {"visible_text": "NeverAppears"},
+            }
+        ],
+    }
+
+    broken_path = tmp_path / "broken.yaml"
+    with open(broken_path, "w") as f:
+        yaml.dump(broken_yaml, f)
+
+    result = run_site_config(
+        str(broken_path),
+        task_id="test-broken",
+        fields={},
+        state_dir=str(tmp_path / "state"),
+        artifacts_dir=str(tmp_path / "artifacts"),
+        headless=True,
+        reset=True,
+        executable_path=CHROME_PATH,
+    )
+
+    assert result.success is False, "Broken config should fail"
+    assert result.error is not None
+    assert len(result.error) > 0

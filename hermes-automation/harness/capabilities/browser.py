@@ -212,7 +212,7 @@ def version_report() -> dict:
         "os": platform.system(),
         "os_release": platform.release(),
         "playwright_version": _get_playwright_version(),
-        "chromium_path": "/usr/bin/google-chrome",
+        "chromium_path": "bundled (Playwright default)",
     }
 
 

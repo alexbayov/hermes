@@ -178,6 +178,17 @@ def run_site_config(
     )
     page = new_page(browser_context)
 
+    # Trace management
+    trace_enabled = bool(config.get("browser", {}).get("trace", False))
+    if trace_enabled:
+        try:
+            browser_context.tracing.start(
+                screenshots=True, snapshots=True, sources=True
+            )
+        except Exception as e:
+            logger.warning("failed to start tracing: %s", e)
+            trace_enabled = False
+
     try:
         for step in config.get("steps", []):
             step_id = step.get("id", "")
@@ -262,16 +273,23 @@ def run_site_config(
         result.completed_steps = completed_steps
         final_url_safe = _safe_url(page)
 
-    # Save trace on failure
+    # Save trace + failure screenshot on failure
     if not result.success:
+        run_dir = artifacts_dir / task_id
+        run_dir.mkdir(parents=True, exist_ok=True)
         try:
-            trace_dir = artifacts_dir / task_id / "trace"
-            trace_dir.mkdir(parents=True, exist_ok=True)
-            trace_path = trace_dir / "trace.zip"
-            browser_context.tracing.stop(path=str(trace_path))
-            result.trace_path = str(trace_path)
+            page.screenshot(
+                path=str(run_dir / "failure.png"),
+                mask=[page.locator("input[type=password]")],
+            )
         except Exception as e:
-            logger.warning("failed to save trace: %s", e)
+            logger.warning("failed to save failure screenshot: %s", e)
+        if trace_enabled:
+            try:
+                browser_context.tracing.stop(path=str(run_dir / "trace.zip"))
+                result.trace_path = str(run_dir / "trace.zip")
+            except Exception as e:
+                logger.warning("failed to save trace: %s", e)
 
     result.final_url = final_url_safe
 
