@@ -59,8 +59,10 @@ Extract from the user's request:
 
 - Activate the `web-automation` skill
 - Follow the 6-step authoring workflow: recon → chunk → actions → fields_schema → success → test
-- Save as `sites/<name>.yaml`
+- Save as `sites/<name>.yaml` — **ALWAYS a YAML recipe, NEVER a standalone .py script**
 - Run it
+
+**🚫 Anti-pattern (PROHIBITED):** Writing standalone scripts like `spaceship_v1.py`, `signup_v2.py`, or any manual playwright/selenium code outside `harness/`. These bypass the engine, lose checkpoint/resume, and produce silent multi-iteration stalls. Only YAML recipes are acceptable.
 
 ### Step 5: Verify
 

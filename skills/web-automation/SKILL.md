@@ -273,12 +273,12 @@ Step-by-step recipe to turn "automate site X" into a valid `sites/<name>.yaml`:
 
 ### 8.1 Reconnaissance
 
-1. Open the target page in a browser (or Playwright).
-2. Use accessibility snapshot / DevTools to identify:
-   - ARIA roles and accessible names of key inputs and buttons.
-   - `<label>` associations.
-   - `data-testid` attributes (gold standard if available).
-3. Map out the navigation flow: what URL → what action → what redirect → what URL.
+1. Open the target page via Playwright.
+2. **DOM-first**: run `recon.dump_interactive(page)` — one cheap accessibility snapshot, no API calls.
+   - This returns ALL visible interactive elements with role/name/text/selector.
+   - Use THESE for locator selection, NOT vision/image-based guessing.
+3. Use `vision_analyze` ONLY as fallback — max 2 times per recipe, and only when DOM fails (e.g., canvas-based UI, custom WebGL widgets).
+4. Map out the navigation flow: what URL → what action → what redirect → what URL.
 
 ### 8.2 Chunk into Steps
 
@@ -309,8 +309,9 @@ Step-by-step recipe to turn "automate site X" into a valid `sites/<name>.yaml`:
 
 1. Run with `--reset` on staging/sandbox.
 2. On failure, check `artifacts/<task_id>/failure.png` (masked screenshot) and `trace.zip`.
-3. Fix flaky locators by moving up the priority chain.
-4. Re-run until green 10/10.
+3. Fix flaky locators by moving up the priority chain (§5).
+4. **Resume with checkpoint**: fix the broken selector in the YAML, re-run the SAME task_id — the engine continues from the last successful step. No cold restart of the browser or rewriting the entire recipe.
+5. Re-run until green 10/10.
 
 ## 9. Annotated Example
 
