@@ -1,0 +1,104 @@
+name: golden_onboarding
+start_url: "http://localhost:8080/signup"
+
+browser:
+  headless: true
+  viewport:
+    width: 1280
+    height: 900
+  trace: true
+
+capabilities:
+  redaction:
+    enabled: true
+
+fields_schema:
+  email:
+    secret: false
+  first_name:
+    secret: false
+  last_name:
+    secret: false
+  password:
+    secret: true
+
+retry:
+  max_attempts: 3
+  strategy: conservative
+
+steps:
+  - id: open_start
+    actions:
+      - type: goto
+        id: goto_signup
+        payload:
+          url: "http://localhost:8080/signup"
+        idempotency: overwrite
+    success:
+      url_contains: "/signup"
+
+  - id: submit_email
+    actions:
+      - type: fill
+        id: fill_email
+        payload:
+          role: textbox
+          name: Email
+          value: email
+        idempotency: overwrite
+      - type: click
+        id: click_continue
+        payload:
+          role: button
+          name: Continue
+        idempotency: once
+    success:
+      visible_text: "Check your email"
+
+  - id: verify_email
+    actions:
+      - type: goto
+        id: goto_verify
+        payload:
+          url: "http://localhost:8080/verify?token=test-token-123"
+        idempotency: overwrite
+    success:
+      url_contains: "/onboarding"
+
+  - id: onboarding
+    actions:
+      - type: fill
+        id: fill_first_name
+        payload:
+          role: textbox
+          name: First Name
+          value: first_name
+        idempotency: overwrite
+      - type: fill
+        id: fill_last_name
+        payload:
+          role: textbox
+          name: Last Name
+          value: last_name
+        idempotency: overwrite
+      - type: fill
+        id: fill_password
+        payload:
+          role: textbox
+          name: Password
+          value: password
+          secret: true
+        idempotency: overwrite
+      - type: check
+        id: agree_terms
+        payload:
+          label: "I agree to the Terms"
+        idempotency: check_state
+      - type: click
+        id: submit_onboarding
+        payload:
+          role: button
+          name: Continue
+        idempotency: once
+    success:
+      url_contains: "/home"
