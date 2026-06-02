@@ -72,26 +72,51 @@ def get_inbox(config_path: str | Path | None = None) -> MailConfig:
     return _load_mail_config(config_path)
 
 
+def _fetch_message_body(cfg: MailConfig, msg_id: str) -> str:
+    """Fetch full message body by ID from Mailpit/Mailhog."""
+    base_url = f"http://{cfg.host}:{cfg.http_port}"
+    detail_url = f"{base_url}/api/v1/message/{msg_id}"
+    try:
+        req = Request(detail_url, headers={"Accept": "application/json"})
+        resp = urlopen(req, timeout=10)
+        data = json.loads(resp.read().decode("utf-8"))
+        return (data.get("HTML") or data.get("html") or
+                data.get("Body") or data.get("body") or
+                data.get("Text") or data.get("text") or "")
+    except (URLError, json.JSONDecodeError, OSError) as e:
+        logger.warning("failed to fetch message body for %s: %s", msg_id, e)
+        return ""
+
+
 def wait_for_message(
     *,
     subject_contains: str | None = None,
+    recipient: str | None = None,
     timeout_s: int = 120,
     poll_s: int = 5,
     config_path: str | Path | None = None,
 ) -> dict | None:
-    """Poll Mailpit/Mailhog API for a message matching criteria.
+    """Poll Mailpit/Mailhog for a message, fetch full body by ID.
 
-    Returns the first matching message or None on timeout.
+    Args:
+        subject_contains: Substring to match in subject.
+        recipient: Email address to match in To field.
+        timeout_s: Max wait time.
+        poll_s: Polling interval.
+        config_path: Override provider config.
+
+    Returns:
+        Message dict with HTML/Body fields populated, or None on timeout.
     """
     cfg = _load_mail_config(config_path)
     base_url = f"http://{cfg.host}:{cfg.http_port}"
-    api_url = f"{base_url}/api/v1/messages"
+    list_url = f"{base_url}/api/v1/messages"
 
     deadline = time.time() + timeout_s
 
     while time.time() < deadline:
         try:
-            req = Request(api_url, headers={"Accept": "application/json"})
+            req = Request(list_url, headers={"Accept": "application/json"})
             resp = urlopen(req, timeout=10)
             data = json.loads(resp.read().decode("utf-8"))
 
@@ -99,10 +124,36 @@ def wait_for_message(
             if isinstance(messages, dict):
                 messages = messages.get("messages", [])
 
+            # Sort by date newest first
+            if messages and isinstance(messages, list):
+                messages = sorted(
+                    messages,
+                    key=lambda m: m.get("Created", m.get("created", "")),
+                    reverse=True,
+                )
+
             for msg in messages:
+                # Filter by subject
                 subject = msg.get("Subject", msg.get("subject", ""))
                 if subject_contains and subject_contains.lower() not in subject.lower():
                     continue
+
+                # Filter by recipient
+                if recipient:
+                    to_list = msg.get("To", msg.get("to", []))
+                    if isinstance(to_list, list):
+                        to_addrs = [a.get("Address", a.get("address", "")) for a in to_list]
+                    else:
+                        to_addrs = [str(to_list)]
+                    if not any(recipient.lower() in a.lower() for a in to_addrs):
+                        continue
+
+                # Fetch full body
+                msg_id = msg.get("ID", msg.get("id", ""))
+                if msg_id:
+                    full_body = _fetch_message_body(cfg, str(msg_id))
+                    msg["HTML"] = full_body
+                    msg["Body"] = full_body
                 return msg
 
         except (URLError, json.JSONDecodeError, OSError) as e:
