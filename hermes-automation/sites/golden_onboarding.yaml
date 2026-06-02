@@ -1,0 +1,95 @@
+name: golden_onboarding
+start_url: "http://localhost:8080/signup"
+
+browser:
+  headless: true
+  viewport:
+    width: 1280
+    height: 900
+  trace: true
+
+capabilities:
+  redaction:
+    enabled: true
+
+fields_schema:
+  email:
+    secret: false
+  first_name:
+    secret: false
+  last_name:
+    secret: false
+  password:
+    secret: true
+
+retry:
+  max_attempts: 3
+  strategy: conservative
+
+steps:
+  - id: open_start
+    actions:
+      - type: goto
+        id: goto_signup
+        payload:
+          url: "http://localhost:8080/signup"
+      - type: dismiss_cookies
+        id: dismiss_cookies
+    success:
+      url_contains: "/signup"
+
+  - id: submit_email
+    actions:
+      - type: fill
+        id: fill_email
+        payload:
+          role: textbox
+          name: Email
+          value_from: email
+      - type: click
+        id: click_continue
+        payload:
+          role: button
+          name: Continue
+    success:
+      visible_text: "Check your email"
+
+  - id: verify_email
+    actions:
+      - type: goto
+        id: goto_verify
+        payload:
+          url: "http://localhost:8080/verify?token=test-token-123"
+    success:
+      url_contains: "/onboarding"
+
+  - id: onboarding
+    actions:
+      - type: dismiss_cookies
+        id: dismiss_cookies_onboarding
+      - type: fill
+        id: fill_first_name
+        payload:
+          label: "First Name"
+          value_from: first_name
+      - type: fill
+        id: fill_last_name
+        payload:
+          label: "Last Name"
+          value_from: last_name
+      - type: fill
+        id: fill_password
+        payload:
+          label: "Password"
+          value_from: password
+      - type: check
+        id: agree_terms
+        payload:
+          label: "I agree to the Terms"
+      - type: click
+        id: submit_onboarding
+        payload:
+          role: button
+          name: Continue
+    success:
+      url_contains: "/home"
