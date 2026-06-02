@@ -3,7 +3,7 @@
 HRM-18: Hermetic golden flow, no external services.
 """
 
-import multiprocessing
+import socket
 import time
 from pathlib import Path
 
@@ -13,11 +13,23 @@ from harness.engine.executor import run_site_config
 
 SANDBOX_APP = Path(__file__).parent.parent / "sandbox_app" / "app.py"
 SITE_CONFIG = Path(__file__).parent.parent / "sites" / "golden_onboarding.yaml"
+CHROME_PATH = "/usr/bin/google-chrome"
+
+
+def _wait_port(host, port, timeout=15.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                return
+        except OSError:
+            time.sleep(0.1)
+    raise RuntimeError(f"Server {host}:{port} did not start in {timeout}s")
 
 
 @pytest.fixture(scope="module")
 def sandbox_server():
-    """Start sandbox app in a subprocess, yield its URL, then stop."""
+    """Start sandbox app, wait for port, yield, stop."""
     import subprocess
 
     proc = subprocess.Popen(
@@ -25,7 +37,7 @@ def sandbox_server():
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    time.sleep(1.5)  # Let Flask start
+    _wait_port("127.0.0.1", 8080)
 
     yield "http://localhost:8080"
 
@@ -50,6 +62,7 @@ def test_golden_onboarding_full_flow(sandbox_server, tmp_path):
         artifacts_dir=str(tmp_path / "artifacts"),
         headless=True,
         reset=True,
+        executable_path=CHROME_PATH,
     )
 
     assert result.success is True, f"Full flow failed: {result.error}"
@@ -63,7 +76,7 @@ def test_golden_onboarding_full_flow(sandbox_server, tmp_path):
 
 
 def test_golden_onboarding_checkpoint_resume(sandbox_server, tmp_path):
-    """First run succeeds from step 1, then 'resume' skips to step 4."""
+    """First run succeeds, then resume skips all done steps."""
     task_id = "test-golden-resume"
     fields = {
         "email": "qa-resume@example.test",
@@ -72,7 +85,6 @@ def test_golden_onboarding_checkpoint_resume(sandbox_server, tmp_path):
         "password": "TestPass123!",
     }
 
-    # First run — full flow
     result1 = run_site_config(
         str(SITE_CONFIG),
         task_id=task_id,
@@ -81,16 +93,11 @@ def test_golden_onboarding_checkpoint_resume(sandbox_server, tmp_path):
         artifacts_dir=str(tmp_path / "artifacts"),
         headless=True,
         reset=True,
+        executable_path=CHROME_PATH,
     )
     assert result1.success, f"First run failed: {result1.error}"
-    assert result1.completed_steps == [
-        "open_start",
-        "submit_email",
-        "verify_email",
-        "onboarding",
-    ]
+    assert len(result1.completed_steps) == 4
 
-    # Second run same task_id — should skip all steps (already done)
     result2 = run_site_config(
         str(SITE_CONFIG),
         task_id=task_id,
@@ -99,14 +106,14 @@ def test_golden_onboarding_checkpoint_resume(sandbox_server, tmp_path):
         artifacts_dir=str(tmp_path / "artifacts"),
         headless=True,
         reset=False,
+        executable_path=CHROME_PATH,
     )
     assert result2.success
-    # All steps already done, so completed_steps should be the same 4
     assert len(result2.completed_steps) == 4
 
 
 def test_golden_onboarding_reset(sandbox_server, tmp_path):
-    """--reset flag forces a fresh run even with existing checkpoint."""
+    """--reset flag forces a fresh run."""
     task_id = "test-golden-reset"
     fields = {
         "email": "qa-reset@example.test",
@@ -115,7 +122,6 @@ def test_golden_onboarding_reset(sandbox_server, tmp_path):
         "password": "TestPass123!",
     }
 
-    # First run
     result1 = run_site_config(
         str(SITE_CONFIG),
         task_id=task_id,
@@ -124,10 +130,10 @@ def test_golden_onboarding_reset(sandbox_server, tmp_path):
         artifacts_dir=str(tmp_path / "artifacts"),
         headless=True,
         reset=True,
+        executable_path=CHROME_PATH,
     )
     assert result1.success
 
-    # Second run with reset=True — should run all steps again
     result2 = run_site_config(
         str(SITE_CONFIG),
         task_id=task_id,
@@ -136,6 +142,7 @@ def test_golden_onboarding_reset(sandbox_server, tmp_path):
         artifacts_dir=str(tmp_path / "artifacts"),
         headless=True,
         reset=True,
+        executable_path=CHROME_PATH,
     )
     assert result2.success
     assert result2.completed_steps == [

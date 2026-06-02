@@ -129,25 +129,28 @@ class GotoHandler:
 
 
 class FillHandler:
-    """Fill a text field."""
+    """Fill a text field. Supports value_from for field substitution."""
 
     def run(
         self, page: Page, action: dict, context: ExecutionContext
     ) -> ActionResult:
         from time import monotonic
 
-        from harness.capabilities.click import fill_role, fill_selector
+        from harness.capabilities.click import fill_label, fill_role, fill_selector
 
         payload = action.get("payload", {})
-        value = payload.get("value", "")
 
-        # Resolve value from fields if it's a key reference
-        if value in context.fields:
-            value = context.fields[value]
+        # value_from → explicit field substitution; value → literal
+        if "value_from" in payload:
+            value = str(context.fields.get(payload["value_from"], ""))
+        else:
+            value = str(payload.get("value", ""))
 
         t0 = monotonic()
         try:
-            if "selector" in payload:
+            if "label" in payload:
+                fill_label(page, payload["label"], value)
+            elif "selector" in payload:
                 fill_selector(page, payload["selector"], value)
             elif "role" in payload:
                 fill_role(page, payload["role"], payload.get("name", ""), value)
@@ -155,7 +158,8 @@ class FillHandler:
                 return ActionResult(
                     success=False,
                     action_type="fill",
-                    error="fill requires 'role' or 'selector' in payload",
+                    action_id=action.get("id"),
+                    error="fill requires 'label', 'role', or 'selector' in payload",
                 )
             return ActionResult(
                 success=True,
@@ -305,8 +309,25 @@ class WaitForTextHandler:
             )
 
 
+class DismissCookiesHandler:
+    """Best-effort cookie/consent dismissal. Never fails the flow."""
+
+    def run(
+        self, page: Page, action: dict, context: ExecutionContext
+    ) -> ActionResult:
+        from harness.capabilities.browser import dismiss_cookie_banner
+
+        dismissed = dismiss_cookie_banner(page)
+        return ActionResult(
+            success=True,
+            action_type="dismiss_cookies",
+            action_id=action.get("id"),
+            extra={"dismissed": dismissed},
+        )
+
+
 class ScreenshotHandler:
-    """Take a screenshot."""
+    """Take a screenshot, masking password inputs."""
 
     def run(
         self, page: Page, action: dict, context: ExecutionContext
@@ -322,7 +343,10 @@ class ScreenshotHandler:
 
         t0 = monotonic()
         try:
-            page.screenshot(path=str(path))
+            page.screenshot(
+                path=str(path),
+                mask=[page.locator("input[type=password]")],
+            )
             return ActionResult(
                 success=True,
                 action_type="screenshot",
@@ -351,5 +375,6 @@ def create_default_registry() -> ActionRegistry:
     registry.register("check", CheckHandler())
     registry.register("wait_for_url", WaitForUrlHandler())
     registry.register("wait_for_text", WaitForTextHandler())
+    registry.register("dismiss_cookies", DismissCookiesHandler())
     registry.register("screenshot", ScreenshotHandler())
     return registry

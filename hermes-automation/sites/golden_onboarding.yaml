@@ -33,7 +33,8 @@ steps:
         id: goto_signup
         payload:
           url: "http://localhost:8080/signup"
-        idempotency: overwrite
+      - type: dismiss_cookies
+        id: dismiss_cookies
     success:
       url_contains: "/signup"
 
@@ -44,14 +45,12 @@ steps:
         payload:
           role: textbox
           name: Email
-          value: email
-        idempotency: overwrite
+          value_from: email
       - type: click
         id: click_continue
         payload:
           role: button
           name: Continue
-        idempotency: once
     success:
       visible_text: "Check your email"
 
@@ -61,44 +60,36 @@ steps:
         id: goto_verify
         payload:
           url: "http://localhost:8080/verify?token=test-token-123"
-        idempotency: overwrite
     success:
       url_contains: "/onboarding"
 
   - id: onboarding
     actions:
+      - type: dismiss_cookies
+        id: dismiss_cookies_onboarding
       - type: fill
         id: fill_first_name
         payload:
-          role: textbox
-          name: First Name
-          value: first_name
-        idempotency: overwrite
+          label: "First Name"
+          value_from: first_name
       - type: fill
         id: fill_last_name
         payload:
-          role: textbox
-          name: Last Name
-          value: last_name
-        idempotency: overwrite
+          label: "Last Name"
+          value_from: last_name
       - type: fill
         id: fill_password
         payload:
-          role: textbox
-          name: Password
-          value: password
-          secret: true
-        idempotency: overwrite
+          label: "Password"
+          value_from: password
       - type: check
         id: agree_terms
         payload:
           label: "I agree to the Terms"
-        idempotency: check_state
       - type: click
         id: submit_onboarding
         payload:
           role: button
           name: Continue
-        idempotency: once
     success:
       url_contains: "/home"

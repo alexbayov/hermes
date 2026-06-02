@@ -7,7 +7,6 @@ All actions go through Playwright locator/actionability — no coordinates, no s
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from playwright.sync_api import Page, expect
 
@@ -56,6 +55,19 @@ def fill_role(
     locator.first.fill(value, timeout=timeout_ms)
 
 
+def fill_label(
+    page: Page,
+    label: str,
+    value: str,
+    *,
+    timeout_ms: int = DEFAULT_TIMEOUT_MS,
+) -> None:
+    """Fill an input by its associated label text."""
+    loc = page.get_by_label(label)
+    loc.first.wait_for(state="visible", timeout=timeout_ms)
+    loc.first.fill(value, timeout=timeout_ms)
+
+
 def fill_selector(
     page: Page,
     selector: str,
@@ -75,37 +87,21 @@ def check_box(
     *,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
 ) -> None:
-    """Check a checkbox by its label.
+    """Check a checkbox by its label — idempotent via Playwright .check().
 
-    Supports: <input type=checkbox>, label-associated, role=checkbox,
-    custom React controlled checkbox.
-    Only clicks if not already checked.
+    .check() is a no-op if already checked and asserts the final state.
     """
     # Strategy 1: role=checkbox with name=label
-    try:
-        cb = page.get_by_role("checkbox", name=label)
-        if cb.count() > 0 and cb.first.is_visible():
-            if not cb.first.is_checked():
-                cb.first.click(timeout=timeout_ms)
-            return
-    except Exception:
-        pass
+    cb = page.get_by_role("checkbox", name=label)
+    if cb.count() > 0:
+        cb.first.wait_for(state="visible", timeout=timeout_ms)
+        cb.first.check(timeout=timeout_ms)
+        return
 
-    # Strategy 2: label selector → associated checkbox
+    # Strategy 2: label-associated input via get_by_label
     try:
-        lbl = page.get_by_text(label, exact=True)
-        if lbl.count() > 0 and lbl.first.is_visible():
-            lbl.first.click(timeout=timeout_ms)
-            return
-    except Exception:
-        pass
-
-    # Strategy 3: generic text click
-    try:
-        el = page.get_by_text(label)
-        if el.count() > 0 and el.first.is_visible():
-            el.first.click(timeout=timeout_ms)
-            return
+        page.get_by_label(label).first.check(timeout=timeout_ms)
+        return
     except Exception:
         pass
 
@@ -125,6 +121,9 @@ def assert_success(
 
     At least one condition must be specified.
     """
+    if all(v is None for v in (url_contains, visible_role, visible_text, selector)):
+        raise ValueError("assert_success requires at least one condition")
+
     if url_contains is not None:
         page.wait_for_url(lambda u: url_contains in u, timeout=timeout_ms)
 

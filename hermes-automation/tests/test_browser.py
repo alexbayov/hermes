@@ -11,7 +11,7 @@ from harness.capabilities.browser import (
 
 @pytest.fixture(scope="module")
 def playwright():
-    """Module-level Playwright instance — started once, closed after all tests."""
+    """Module-level Playwright instance."""
     pw = sync_playwright().start()
     yield pw
     pw.stop()
@@ -19,16 +19,15 @@ def playwright():
 
 @pytest.fixture
 def browser(playwright):
-    """Per-test browser + context auto-closed."""
-    browser = playwright.chromium.launch(
+    """Per-test browser + context."""
+    b = playwright.chromium.launch(
         headless=True,
         executable_path="/usr/bin/google-chrome",
-        args=["--no-sandbox"],
     )
-    context = browser.new_context(viewport={"width": 1280, "height": 900})
-    yield browser, context
-    context.close()
-    browser.close()
+    ctx = b.new_context(viewport={"width": 1280, "height": 900})
+    yield b, ctx
+    ctx.close()
+    b.close()
 
 
 @pytest.fixture
@@ -85,5 +84,4 @@ def test_cookie_banner_rules_not_empty():
     assert len(COOKIE_BANNER_RULES) > 0
     for rule in COOKIE_BANNER_RULES:
         assert isinstance(rule, dict)
-        # Each rule has at least one identification method
         assert any(k in rule for k in ("role", "text", "selector"))

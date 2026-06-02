@@ -58,13 +58,12 @@ BANNER_DISMISS_TIMEOUT_MS = 2_000
 def launch_context(
     *,
     headless: bool = True,
-    executable_path: str | None = "/usr/bin/google-chrome",
+    executable_path: str | None = None,
     browser_args: list[str] | None = None,
     storage_state: str | None = None,
     viewport: dict | None = None,
     device_scale_factor: float = DEFAULT_DEVICE_SCALE_FACTOR,
     user_agent: str | None = None,
-    trace: bool = True,
     playwright_instance: Playwright | None = None,
 ) -> tuple[Browser, BrowserContext, Playwright]:
     """Launch browser and create a context.
@@ -73,28 +72,27 @@ def launch_context(
 
     Args:
         headless: Run without UI. Always a bool per spec.
-        executable_path: Path to Chrome/Chromium binary.
+        executable_path: Path to Chrome/Chromium binary (optional, default: Playwright bundled).
         browser_args: Extra Chrome CLI args (e.g. ['--no-sandbox']).
         storage_state: Path to Playwright storage state JSON for session resume.
         viewport: Override default viewport dict.
         device_scale_factor: Device pixel ratio.
         user_agent: Custom UA string (not for stealth, for client compat).
-        trace: Whether to enable Playwright trace on context.
         playwright_instance: Reuse existing Playwright manager (for tests).
     """
     if browser_args is None:
-        browser_args = ["--no-sandbox"]
+        browser_args = []
 
     if playwright_instance is not None:
         playwright = playwright_instance
     else:
         playwright = sync_playwright().start()
 
-    browser = playwright.chromium.launch(
-        headless=headless,
-        executable_path=executable_path,
-        args=browser_args,
-    )
+    launch_kwargs: dict = {"headless": headless, "args": browser_args}
+    if executable_path:
+        launch_kwargs["executable_path"] = executable_path
+
+    browser = playwright.chromium.launch(**launch_kwargs)
 
     viewport = viewport or DEFAULT_VIEWPORT
     context_kwargs: dict = {
@@ -108,16 +106,13 @@ def launch_context(
 
     context = browser.new_context(**context_kwargs)
 
-    if trace:
-        context.tracing.start(screenshots=False, snapshots=True)
-
     return browser, context, playwright
 
 
 def new_page(context: BrowserContext) -> Page:
     """Create a new page with console/network listeners.
 
-    Attaches safe cookie/modal dismissal handlers if configured.
+    Cookie dismissal is handled separately via the dismiss_cookies action.
     """
     page = context.new_page()
 
@@ -175,7 +170,7 @@ def close_browser(browser: Browser) -> None:
 def browser_session(
     *,
     headless: bool = True,
-    executable_path: str | None = "/usr/bin/google-chrome",
+    executable_path: str | None = None,
     viewport: dict | None = None,
     storage_state: str | None = None,
     playwright_instance: Playwright | None = None,
