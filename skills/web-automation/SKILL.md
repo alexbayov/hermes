@@ -337,7 +337,7 @@ Before submitting a new `sites/<name>.yaml`, verify:
 - [ ] Run on sandbox/staging **green** (10/10).
 - [ ] Failure artifacts (`failure.png`, `trace.zip`) are generated and interpretable on a forced failure.
 - [ ] `--reset` fresh run works; resume after kill continues from last checkpoint.
-- [ ] **No keys the engine ignores** — from `browser:` only `trace` is honored; redaction is from `secret: true`, not `capabilities.redaction.enabled`; `retry.strategy` is reserved.
+- [ ] **Inert keys understood** — `browser.headless/viewport`, `capabilities.redaction.enabled`, and `retry.strategy` may appear in YAML but are NOT read by the engine. They can be included for documentation but must not be relied on for behavior.
 
 ## Scope and Discipline
 
