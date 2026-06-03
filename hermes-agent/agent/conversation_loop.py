@@ -439,6 +439,8 @@ def run_conversation(
     # Reset retry counters and iteration budget at the start of each turn
     # so subagent usage from a previous turn doesn't eat into the next one.
     agent._invalid_tool_retries = 0
+    agent._last_progress_sig = None
+    agent._no_progress_count = 0
     agent._invalid_json_retries = 0
     agent._empty_content_retries = 0
     agent._incomplete_scratchpad_retries = 0
@@ -816,11 +818,18 @@ def run_conversation(
         )
 
         # No-progress breaker — detect stalls (HRM-26)
-        # Progress signature: last tool names + response length
-        _last_tool_names = sorted([tc["function"]["name"] for m in reversed(messages)
-                                   if m.get("role") == "assistant" and m.get("tool_calls")
-                                   for tc in m["tool_calls"]]) if messages else []
-        _progress_sig = hash(tuple(_last_tool_names)) if _last_tool_names else 0
+        # Progress signature: tool names from LAST assistant message + hash of last tool result
+        _last_tool_names = []
+        _last_result = ""
+        for m in reversed(messages):
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                _last_tool_names = sorted(tc["function"]["name"] for tc in m["tool_calls"])
+                break
+        for m in reversed(messages):
+            if m.get("role") == "tool":
+                _last_result = str(m.get("content", ""))[:200]
+                break
+        _progress_sig = hash((tuple(_last_tool_names), _last_result)) if _last_tool_names else 0
         if not hasattr(agent, "_last_progress_sig"):
             agent._last_progress_sig = None
             agent._no_progress_count = 0
