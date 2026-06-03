@@ -1062,6 +1062,14 @@ def init_agent(
     # broad pseudo-public config object on the agent instance.
     agent._aux_compression_context_length_config = None
 
+    # HRM-27: no_progress_k from config overrides default/caller param
+    try:
+        _cfg_npk = _agent_cfg.get("agent", {}).get("no_progress_k")
+        if isinstance(_cfg_npk, (int, float)) and _cfg_npk > 0:
+            agent.no_progress_k = int(_cfg_npk)
+    except Exception:
+        pass
+
     # Persistent memory (MEMORY.md + USER.md) -- loaded from disk
     agent._memory_store = None
     agent._memory_enabled = False

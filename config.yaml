@@ -8,7 +8,8 @@ agent:
   gateway_timeout: 1800
   gateway_timeout_warning: 900
   image_input_mode: auto
-  max_turns: 30
+  max_turns: 60
+  no_progress_k: 6
   personalities:
     catgirl: You are Neko-chan, an anime catgirl AI assistant, nya~! Add 'nya' and
       cat-like expressions to your speech. Use kaomoji like (=^･ω･^=) and ฅ^•ﻌ•^ฅ.

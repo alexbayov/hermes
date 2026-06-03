@@ -326,6 +326,7 @@ class AIAgent:
         args: list[str] | None = None,
         model: str = "",
         max_iterations: int = 90,  # Default tool-calling iterations (shared with subagents)
+        no_progress_k: int = 4,  # HRM-27: consecutive same-pattern iterations before stall exit
         tool_delay: float = 1.0,
         enabled_toolsets: List[str] = None,
         disabled_toolsets: List[str] = None,
@@ -396,6 +397,7 @@ class AIAgent:
             args=args,
             model=model,
             max_iterations=max_iterations,
+            no_progress_k=no_progress_k,
             tool_delay=tool_delay,
             enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets,
