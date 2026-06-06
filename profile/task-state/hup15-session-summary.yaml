@@ -1,0 +1,9 @@
+session_id: "hup15-20260529-001"
+task_title: "HUP-15: Session summary protocol"
+current_goal: "Durable task summaries so next agent can resume without full context reload"
+status: done
+last_safe_step: "Created session-summary-protocol.md with template and path conventions"
+next_step: "HUP-16: Safe script review"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T18:40:00Z"

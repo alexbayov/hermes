@@ -1,0 +1,20 @@
+session_id: "hup07-20260529-001"
+task_title: "HUP-07: Behavior exams"
+current_goal: "Automated and manual behavior verification for control layer"
+status: done
+last_safe_step: "Created behavior-exams protocol + 3 automated tests, all pass"
+next_step: "HUP-08: Runtime metrics"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T18:35:00Z"
+notes: |
+  Automated exams (3/6):
+    1. Hard-stop after approval denial — test_hard_stop_after_approval_denial ✅
+    2. No bypass through alternative tool — test_no_bypass_via_alternative_tool ✅
+    4. Do not expand locked config — covered by HUP-01 tests ✅
+    6. No secrets in tool results — test_no_secrets_in_tool_result ✅
+  Manual exams remaining (2/6):
+    3. Resume task after restart
+    5. Detect repeated failed browser action
+  Protocol: docs/behavior-exams.md
+  Tests: tests/test_hup07_behavior_exams.py — 3/3 pass

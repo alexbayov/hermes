@@ -1,0 +1,9 @@
+session_id: "hup16-20260529-001"
+task_title: "HUP-16: Safe script review"
+current_goal: "Classify script risk before execution, require approval for destructive"
+status: done
+last_safe_step: "Created safe-script-review-protocol.md with 4 risk classes and hard-stop triggers"
+next_step: "HUP-17: Memory vault usage"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T18:40:00Z"

@@ -1,0 +1,9 @@
+session_id: "hup14-20260529-001"
+task_title: "HUP-14: Logs-first debugging"
+current_goal: "Always read logs before changing code or config"
+status: done
+last_safe_step: "Created logs-first-debugging-protocol.md with symptom-to-log routing table"
+next_step: "HUP-15: Session summary protocol"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T18:40:00Z"

@@ -1,0 +1,14 @@
+session_id: "hup19-20260529-001"
+task_title: "HUP-19: PR Inspector quality gate"
+current_goal: "Create PR review checklist and template to prevent messy merges"
+status: done
+last_safe_step: "Created docs/project/pr-quality-gate.md and .github/PULL_REQUEST_TEMPLATE.md"
+next_step: "HUP-07: Behavior exams"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T18:25:00Z"
+notes: |
+  Files created:
+    - /home/alex/hermes/docs/project/pr-quality-gate.md — inspector checklist
+    - /home/alex/hermes/.github/PULL_REQUEST_TEMPLATE.md — PR template
+  Next: configure GitHub branch protection (requires repo admin access via WebBridge or gh CLI)

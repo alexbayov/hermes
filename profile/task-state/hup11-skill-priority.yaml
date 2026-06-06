@@ -1,0 +1,9 @@
+session_id: "hup11-20260529-001"
+task_title: "HUP-11: Skill priority system"
+current_goal: "Deterministic skill loading order and legacy cleanup"
+status: done
+last_safe_step: "Created skill-priority-system.md with loading rules and cleanup commands"
+next_step: "HUP-14: Logs-first debugging"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T18:40:00Z"

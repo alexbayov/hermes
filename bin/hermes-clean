@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export HERMES_HOME=/home/alex/hermes/profile
+export HERMES_TUI_TOOLSETS=file,web,skills,memory,todo,terminal,clarify,session_search
+
+if [ -f "$HERMES_HOME/.env" ]; then
+  set -a
+  . "$HERMES_HOME/.env"
+  set +a
+fi
+
+# Alias Fireworks key to OPENAI_API_KEY for OpenAI-compatible endpoints
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${FIREWORKS_API_KEY:-}" ]; then
+  export OPENAI_API_KEY="$FIREWORKS_API_KEY"
+fi
+
+echo "Hermes clean profile: $HERMES_HOME"
+echo "Provider: $(hermes --version 2>/dev/null || echo 'Hermes not in PATH')"
+
+# Run Hermes with clean profile
+exec hermes "$@"

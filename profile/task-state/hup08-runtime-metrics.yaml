@@ -1,0 +1,9 @@
+session_id: "hup08-20260529-001"
+task_title: "HUP-08: Runtime metrics"
+current_goal: "Make Hermes behavior inspectable without log grepping"
+status: done
+last_safe_step: "Created runtime-metrics-protocol.md with metric catalog and quick commands"
+next_step: "HUP-11: Skill priority system"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T18:40:00Z"

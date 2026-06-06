@@ -1,0 +1,19 @@
+session_id: "hup03-20260529-001"
+task_title: "HUP-03: Hard-Stop Enforcement"
+current_goal: "Enable and configure hard-stop guardrail mechanism to prevent infinite tool loops"
+status: done
+last_safe_step: "Enabled built-in ToolCallGuardrailController via config.yaml (hard_stop_enabled: true)"
+next_step: "HUP-06: Anti-carousel/progress detector"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T17:30:00Z"
+notes: |
+  Hermes already ships with ToolCallGuardrailController in agent/tool_guardrails.py.
+  It detects three loop patterns:
+  - exact_failure: same tool+args fails repeatedly
+  - same_tool_failure: same tool fails with varying args
+  - idempotent_no_progress: read/search returns identical results
+  Thresholds used:
+    warn_after: exact=2, same_tool=3, no_progress=2
+    hard_stop_after: exact=5, same_tool=8, no_progress=5
+  No code changes to upstream core required — pure config activation.

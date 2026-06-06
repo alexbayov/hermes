@@ -1,0 +1,12 @@
+session_id: "hup18-20260529-001"
+task_title: "HUP-18: Manual behavior exams"
+current_goal: "6 manual exams with precise steps and pass/fail criteria"
+status: done
+last_safe_step: "Created manual-behavior-exams.md with all 6 exams and recording template"
+next_step: "All HUP backlog items processed"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T18:40:00Z"
+notes: |
+  Automated exams: 4/6 covered by tests
+  Manual exams: 2/6 documented, to be run before next profile release

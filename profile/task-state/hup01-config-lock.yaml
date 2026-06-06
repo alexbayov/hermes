@@ -1,0 +1,16 @@
+session_id: "hup01-20260529-001"
+task_title: "HUP-01: Enforce _config_lock"
+current_goal: "Prevent Hermes from silently expanding locked config.yaml"
+status: done
+last_safe_step: "Added _is_config_locked() guard to all config write paths; tests pass"
+next_step: "HUP-02: Verify HERMES_HOME propagation"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T18:00:00Z"
+notes: |
+  Patched 3 config write surfaces:
+    1. tui_gateway/server.py:_save_cfg() — blocked
+    2. tui_gateway/server.py:_write_config_key() — blocked  
+    3. hermes_cli/config.py:save_config() — blocked
+    4. cli.py:save_config_value() — blocked
+  Tests: tests/test_hup01_config_lock.py — 3/3 pass

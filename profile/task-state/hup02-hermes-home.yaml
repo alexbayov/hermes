@@ -1,0 +1,16 @@
+session_id: "hup02-20260529-001"
+task_title: "HUP-02: Verify HERMES_HOME propagation"
+current_goal: "Prove that subprocesses inherit HERMES_HOME and no silent fallback to ~/.hermes"
+status: done
+last_safe_step: "Tests confirm _inject_context_hermes_home sets HERMES_HOME in subprocess env"
+next_step: "HUP-19: PR Inspector quality gate (P0)"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T18:15:00Z"
+notes: |
+  Existing infrastructure confirmed working:
+    - hermes_constants.get_hermes_home() reads HERMES_HOME env var
+    - _inject_context_hermes_home() passes it to subprocess env in local.py
+    - ContextVar _HERMES_HOME_OVERRIDE available for programmatic override
+  Tests: tests/test_hup02_hermes_home.py — 2/2 pass
+  Launcher hermes-clean already exports HERMES_HOME=/home/alex/hermes/profile

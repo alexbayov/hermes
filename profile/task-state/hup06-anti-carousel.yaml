@@ -1,0 +1,18 @@
+session_id: "hup06-20260529-001"
+task_title: "HUP-06: Anti-Carousel / Progress Detector"
+current_goal: "Implement cross-tool progress stall detection to catch agent spinning without real work"
+status: done
+last_safe_step: "Created progress_detector plugin with post_tool_call ledger + pre_llm_call carousel detection"
+next_step: "HUP-12: Hermes Desktop feasibility test"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T17:45:00Z"
+notes: |
+  Plugin path: ~/.hermes/plugins/progress_detector/
+  Hooks: post_tool_call (updates ledger), pre_llm_call (injects warnings)
+  Detects:
+    - Read-only lock: 5+ consecutive read/search turns with zero mutating actions
+    - File-read carousel: same file read 3+ times without write in between
+    - Terminal carousel: same command or same output 3+ times
+    - Search carousel: semantically identical query repeated 3+ times
+  No upstream core patches — pure plugin, auto-discovered by Hermes.

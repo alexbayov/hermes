@@ -1,0 +1,9 @@
+session_id: "hup00-20260529-001"
+task_title: "HUP-00: Fireworks API Migration"
+current_goal: "Migrate Hermes from dead OpenRouter key to active Fireworks API"
+status: done
+last_safe_step: "Gateway started successfully with Fireworks provider"
+next_step: "HUP-03: Implement hard-stop enforcement"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T17:15:00Z"

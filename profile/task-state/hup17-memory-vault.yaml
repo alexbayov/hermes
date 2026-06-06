@@ -1,0 +1,9 @@
+session_id: "hup17-20260529-001"
+task_title: "HUP-17: Memory vault usage"
+current_goal: "Predictable use of /home/alex/hermes/memory folders"
+status: done
+last_safe_step: "Created memory-vault-usage.md with directory structure and loading rules"
+next_step: "HUP-18: Manual behavior exams"
+blocked_reason: null
+requires_approval: false
+updated_at: "2026-05-29T18:40:00Z"
