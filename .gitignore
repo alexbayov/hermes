@@ -9,6 +9,8 @@ config.yaml
 profile/SOUL.md
 profile/config.yaml
 profile/skills/mlops/inference/obliteratus/templates/abliteration-config.yaml
+profile/skills/red-teaming/
+profile/skills/software-development/subagent-driven-development/
 USER.md
 MEMORY.md
 
