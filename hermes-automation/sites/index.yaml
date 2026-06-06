@@ -1,0 +1,11 @@
+# Recipe index — maps domain/task to sites/*.yaml recipes.
+# Updated automatically on successful runs.
+# NEVER edit manually while a run is in progress.
+
+recipes:
+  golden-onboarding:
+    site_file: sites/golden_onboarding.yaml
+    status: working
+    last_green: null
+    domain: localhost:8080
+    task: onboarding
