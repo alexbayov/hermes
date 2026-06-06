@@ -1,0 +1,29 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Personal identity files
+SOUL.md
+config.yaml
+profile/SOUL.md
+profile/config.yaml
+profile/skills/mlops/inference/obliteratus/templates/abliteration-config.yaml
+USER.md
+MEMORY.md
+
+# Keys and certs
+*.pem
+*.key
+*secret*
+*credential*
+*.token
+
+# Runtime
+logs/
+__pycache__/
+*.pyc
+.hermes/
+
+# OS
+.DS_Store
