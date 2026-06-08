@@ -145,7 +145,17 @@ curl -s -X POST \
   }"
 ```
 
-The response JSON includes the PR `number` — save it for later commands.
+**Fallback when `curl` API call is blocked or `gh` is unavailable:**
+
+If the API call times out or the platform blocks it (consent timeout), fall back to the web URL. The branch is already pushed, so the user can open the PR manually in one click:
+
+```bash
+BRANCH=$(git branch --show-current)
+OWNER_REPO=$(git remote get-url origin | sed -E 's|.*github\.com[:/]||; s|\.git$||')
+echo "Open PR manually: https://github.com/$OWNER_REPO/pull/new/$BRANCH"
+```
+
+This is the most reliable fallback — it requires no API tokens, no `gh` CLI, and no platform permissions. Just share the URL. GitHub pre-fills `base` as the default branch and `head` as the pushed branch.
 
 To create as a draft, add `"draft": true` to the JSON body.
 

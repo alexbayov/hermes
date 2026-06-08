@@ -53,3 +53,24 @@ skills/smart-home/
 skills/social-media/
 skills/software-development/
 skills/yuanbao/
+# Additional runtime noise (auto-generated, session-local)
+channel_directory.json
+gateway.lock
+gateway.pid
+gateway_state.json
+models_dev_cache.json
+processes.json
+sessions/*.json
+.skills_prompt_snapshot.json
+skills/.curator_state
+skills/.usage.json
+skills/.curator_backups/
+kanban.db
+kanban.db.init.lock
+cron/*.output
+
+# Additional runtime noise + backup restructure leftovers
+channel_directory.json
+kanban.db
+kanban.db.init.lock
+cron/
