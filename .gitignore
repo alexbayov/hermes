@@ -107,3 +107,4 @@ response_store.db-wal
 *.db-shm
 *.db-wal
 .tirith-install-failed
+.tirith-install-failed

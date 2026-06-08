@@ -26,13 +26,17 @@ version: 1.2
 
 ## Scripts
 - `init_db.py` — initialize schema (run once)
+- `migrate_schema.py` — idempotent schema migrations with backup-first safety
 - `persist.py` — unified turn logging with decisions/artifacts/issues
 - `validate_last_turn.py` — startup integrity check (gaps, missing assistant turn, active session)
-- `resume_context.py` — restore context from DB, traverses parent sessions
+- `resume_context.py` — restore context from DB, traverses parent sessions with token budget
 - `memory_health.py` — DB diagnostics: gaps, orphans, size, stats, recommendations
 - `memory_query.py` — keyword search across messages, decisions, artifacts, issues
 - `session_end_start.py` — end current session and start new with parent linkage (for reboots/compaction)
-
+- `compact_parents.py` — archive old sessions (Tier-1: >10 closed; Tier-2: >2000 messages)
+- `backup_db.py` — atomic VACUUM INTO backup + WAL + JSONL journal
+- `auto_commit.py` — watch skills/ changes and auto-commit/push to origin/main
+- `db_utils.py` — production connection helpers (WAL, FK, thread-local, tx())
 ## Session start (REQUIRED, FIRST COMMAND)
 ```bash
 python3 /root/.hermes/scripts/validate_last_turn.py
@@ -116,6 +120,30 @@ python3 /root/.hermes/scripts/memory_health.py   # gaps, orphans, size, stats
 python3 /root/.hermes/scripts/memory_query.py --stats
 python3 /root/.hermes/scripts/memory_query.py SQLite   # search messages for 'SQLite'
 python3 /root/.hermes/scripts/memory_query.py -t decisions memory   # search decisions
+```
+
+## Schema migrations
+```bash
+python3 /root/.hermes/scripts/migrate_schema.py --target 3   # apply up to v3
+python3 /root/.hermes/scripts/migrate_schema.py --no-backup  # skip backup (dangerous)
+```
+
+## Compaction (archive old sessions)
+```bash
+python3 /root/.hermes/scripts/compact_parents.py --dry-run
+python3 /root/.hermes/scripts/compact_parents.py               # live run
+```
+
+## Backup (atomic snapshot)
+```bash
+python3 /root/.hermes/scripts/backup_db.py --label pre-release
+python3 /root/.hermes/scripts/backup_db.py --no-journal
+```
+
+## Auto-commit (watch skills/ changes)
+```bash
+python3 /root/.hermes/scripts/auto_commit.py --dry-run
+python3 /root/.hermes/scripts/auto_commit.py --no-push
 ```
 
 ## Pitfalls
