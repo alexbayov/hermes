@@ -32,8 +32,13 @@ def _connect() -> sqlite3.Connection:
 
 
 def get_conn() -> sqlite3.Connection:
-    if not hasattr(_local, "conn"):
-        _local.conn = _connect()
+    if hasattr(_local, "conn"):
+        try:
+            _local.conn.execute("SELECT 1")
+            return _local.conn
+        except (sqlite3.ProgrammingError, sqlite3.OperationalError):
+            del _local.conn
+    _local.conn = _connect()
     return _local.conn
 
 

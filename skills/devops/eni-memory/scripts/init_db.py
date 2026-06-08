@@ -86,8 +86,8 @@ CREATE TABLE IF NOT EXISTS issues (
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 
--- Insert schema version if not present
-INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, 1);
+-- Insert schema version (current schema is v2-ready)
+INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, 2);
 """
 
 
