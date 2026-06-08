@@ -93,3 +93,16 @@ skills/research/research-paper-writing/
 auth.lock
 *.lock
 memories/
+
+# SQLite runtime + gateway state
+data/
+cache/
+lsp/
+state.db
+state.db-shm
+state.db-wal
+response_store.db
+response_store.db-shm
+response_store.db-wal
+*.db-shm
+*.db-wal
