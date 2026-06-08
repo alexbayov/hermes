@@ -32,6 +32,18 @@ gh auth status 2>/dev/null || echo "gh not authenticated"
 git config --global credential.helper 2>/dev/null || echo "no git credential helper"
 ```
 
+### Quick Token Validation (before assuming a token works)
+
+If the user provides a `GITHUB_TOKEN` or `ghp_` / `github_pat_` string, verify it before configuring git remotes:
+
+```bash
+GH_TOKEN="<paste-token-here>"
+USER_JSON=$(curl -s -H "Authorization: token $GH_TOKEN" https://api.github.com/user)
+echo "$USER_JSON" | python3 -c "import sys, json; d=json.load(sys.stdin); print('login:', d.get('login'), 'type:', d.get('type'))" 2>/dev/null || echo "Token INVALID — got 401 or malformed response"
+```
+
+**If this returns 401 Bad credentials:** the token is dead (revoked, expired, or secret-scanning auto-revoked). Do not try to configure git remotes with it — ask the user for a new token immediately. Only proceed after `curl` returns your login and `"type": "User"`.
+
 **Decision tree:**
 1. If `gh auth status` shows authenticated → you're good, use `gh` for everything
 2. If `gh` is installed but not authenticated → use "gh auth" method below
@@ -245,3 +257,6 @@ fi
 | Credentials not persisting | Check `git config --global credential.helper` — must be `store` or `cache` |
 | Multiple GitHub accounts | Use SSH with different keys per host alias in `~/.ssh/config`, or per-repo credential URLs |
 | `gh: command not found` + no sudo | Use git-only Method 1 above — no installation needed |
+| **Token returns 401 Bad credentials** | Token is expired, revoked, or a fine-grained token (which doesn't work for git push). Verify with `curl -H "Authorization: token <TOKEN>" https://api.github.com/user` — must return your login. If it returns 401, generate a new **classic token** with `repo` scope |
+| **Full disk during git operations** | `git` can fail with cryptic errors when disk is 100%. Run `df -h /` before any git operation. Clean apt cache: `apt-get clean`, old logs: `find /var/log -name '*.gz' -delete`, docker images if unused: `docker system prune -f` |
+| **Git push fails after token embed in URL** | GitHub rejects `x-access-token` as username for git operations. Use your actual GitHub username as the username, token as password. Correct format: `git remote set-url origin https://<USERNAME>:<TOKEN>@github.com/OWNER/REPO.git`. Do NOT use `x-access-token` as username for classic PATs — that only works for GitHub Actions tokens. |
