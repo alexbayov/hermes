@@ -132,6 +132,7 @@ python3 /root/.hermes/scripts/memory_query.py -t decisions memory   # search dec
 This is the single source of truth for process context. If it's not in the DB, it didn't happen.
 
 ## References
+- `references/external-ai-consultation.md` — when and how to escalate to Victor/Opus for architecture review
 - `references/parent-chain-session-lifecycle.md` — how session linkage survives reboots, and the per-session gap-detection fix
 - `references/diagnostic-scripts.md` — `memory_health.py` and `memory_query.py` usage
 - `references/sqlite-common-bugs.md` — cursor vs connection, global aggregates, WAL mode, FK pragmas

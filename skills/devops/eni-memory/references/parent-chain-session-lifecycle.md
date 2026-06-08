@@ -1,23 +1,76 @@
-# Parent Chain & Session Lifecycle
+# Session Lifecycle & Parent Chain — ENI Memory
 
-Session restarts (reboot, compaction, long Telegram thread) create NEW sessions in the DB. Without linkage, context is lost.
+## Problem
+When a session is compacted (context window full), a new session starts. By default, the new session has **no context** from the parent — all decisions, artifacts, and issues are lost. This causes ENI to "forget" everything after reboot.
 
-## Architecture
+## Solution: Parent Chain Traversal
 
-`sessions` table has `parent_session_id`. When a session ends, `session_end_start.py --end --start` closes it and creates a new one with the old ID as parent.
+### Schema
+```sql
+ALTER TABLE sessions ADD COLUMN parent_session_id TEXT;
+ALTER TABLE sessions ADD COLUMN message_count INTEGER DEFAULT 0;
+ALTER TABLE sessions ADD COLUMN context_summary TEXT;
+```
 
-`resume_context.py` traverses the parent chain if the current session has zero messages. It pulls the last 3 messages from the most recent ancestor that has data, plus a synthetic `[... context from parent session ...]` marker. Decisions, issues, and artifacts are also inherited from the parent.
+### Algorithm (resume_context.py)
+1. Get current active session
+2. If it has 0 messages and has `parent_session_id`:
+   - Query parent session
+   - Recursively traverse until session with messages found OR max depth reached
+3. Load last N messages + all decisions + all artifacts + all issues from the found session
+4. Return formatted context
 
-## Why this matters
+### Code Pattern
+```python
+def load_parent_chain(session_id, conn, max_depth=10):
+    """Traverse parent sessions to find one with messages."""
+    visited = set()
+    current = session_id
+    depth = 0
+    
+    while current and depth < max_depth:
+        if current in visited:
+            break  # cycle detection
+        visited.add(current)
+        
+        row = conn.execute(
+            "SELECT parent_session_id, message_count FROM sessions WHERE id=?",
+            (current,)
+        ).fetchone()
+        
+        if not row:
+            break
+            
+        if row["message_count"] > 0:
+            return current  # found session with content
+            
+        current = row["parent_session_id"]
+        depth += 1
+    
+    return None  # no parent with messages found
+```
 
-Hermes compacts / reboots the Telegram thread frequently. If the new session starts empty, the agent would have no memory of what was just decided. The parent chain makes context survive across reboots without inflating the active session row count.
+### Session End / Start Ritual
+```bash
+# 1. End current session
+python3 session_end_start.py --end --summary "Memory testing phase"
 
-## Pitfall discovered
+# 2. Start new session with parent link
+python3 session_end_start.py --start --new-summary "New session after improvements"
 
-`validate_last_turn.py` originally used `SELECT MAX(turn_id) FROM messages` globally. This reported `last_turn=6` for a brand-new session that only had turns 0-1, because the closed parent session had turn 6. Fixed by scoping MAX to `WHERE session_id=?`.
+# 3. Resume context (auto-traverses parent chain)
+python3 resume_context.py
+```
 
-## Script locations
+## Pitfalls
+- **Cycle detection**: Always check `visited` set to prevent infinite loops
+- **Max depth**: Limit to 10 parent sessions to avoid timeout
+- **Token count**: When loading parent context, count tokens and stop before overflow
+- **Compacted sessions**: Flag `status='compacted'` means "this session was intentionally ended, load from parent"
 
-- `/root/.hermes/scripts/session_end_start.py` — end current session, start new with parent link
-- `/root/.hermes/scripts/resume_context.py` — restore context, traverses parent chain
-- `/root/.hermes/scripts/validate_last_turn.py` — per-session gap detection + last role check
+## Validation
+```bash
+python3 validate_last_turn.py
+# Must report: last turn=N, turn sequence intact, no gaps
+# Per-session (not global max turn_id!)
+```
