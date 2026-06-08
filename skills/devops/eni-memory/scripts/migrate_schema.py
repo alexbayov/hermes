@@ -45,6 +45,11 @@ MIGRATIONS = {
             error TEXT
         );
     """,
+    4: """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_decisions_unique ON decisions(session_id, turn_id, title);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_artifacts_unique ON artifacts(session_id, turn_id, name);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_unique ON issues(session_id, turn_id, title);
+    """,
 }
 
 

@@ -104,10 +104,30 @@ def persist(
         "token_count": token_count,
         "tool_name": tool_name,
         "tool_result": tool_result,
-        "decision": decision_title,
-        "artifact": artifact_name,
-        "issue": issue_title,
     }
+    if decision_title:
+        journal_entry["decision"] = {
+            "title": decision_title,
+            "choice": decision,
+            "rationale": rationale,
+            "rejected": rejected,
+        }
+    if artifact_name:
+        journal_entry["artifact"] = {
+            "name": artifact_name,
+            "path": artifact_path,
+            "type": artifact_type,
+            "status": artifact_status,
+            "description": artifact_desc,
+        }
+    if issue_title:
+        journal_entry["issue"] = {
+            "title": issue_title,
+            "symptom": symptom,
+            "root_cause": root_cause,
+            "fix": fix,
+            "status": issue_status,
+        }
     _journal({k: v for k, v in journal_entry.items() if v is not None})
 
     print(f"Persisted turn {turn} for session {session}")
@@ -171,52 +191,86 @@ def repair_all():
                  entry.get("token_count"), entry.get("tool_name"), entry.get("tool_result")),
             )
 
-            # Upsert decision
-            if entry.get("decision"):
-                conn.execute(
-                    """
-                    INSERT INTO decisions (session_id, turn_id, title, choice, rationale, rejected)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(session_id, turn_id) DO UPDATE SET
-                        title = excluded.title,
-                        choice = excluded.choice,
-                        rationale = excluded.rationale,
-                        rejected = excluded.rejected
-                    """,
-                    (session, turn, entry.get("decision"), None, None, None),
-                )
+            # Upsert decision (new format: dict, old format: string fallback)
+            dec = entry.get("decision")
+            if dec:
+                if isinstance(dec, dict):
+                    conn.execute(
+                        """
+                        INSERT INTO decisions (session_id, turn_id, title, choice, rationale, rejected)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(session_id, turn_id) DO UPDATE SET
+                            title = excluded.title,
+                            choice = excluded.choice,
+                            rationale = excluded.rationale,
+                            rejected = excluded.rejected
+                        """,
+                        (session, turn, dec.get("title"), dec.get("choice"), dec.get("rationale"), dec.get("rejected")),
+                    )
+                else:
+                    # Old format: just title string
+                    conn.execute(
+                        """
+                        INSERT INTO decisions (session_id, turn_id, title)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(session_id, turn_id) DO UPDATE SET title = excluded.title
+                        """,
+                        (session, turn, dec),
+                    )
 
-            # Upsert artifact
-            if entry.get("artifact"):
-                conn.execute(
-                    """
-                    INSERT INTO artifacts (session_id, turn_id, name, path, type, status, description)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(session_id, turn_id) DO UPDATE SET
-                        name = excluded.name,
-                        path = excluded.path,
-                        type = excluded.type,
-                        status = excluded.status,
-                        description = excluded.description
-                    """,
-                    (session, turn, entry.get("artifact"), None, None, None, None),
-                )
+            # Upsert artifact (new format: dict, old format: string fallback)
+            art = entry.get("artifact")
+            if art:
+                if isinstance(art, dict):
+                    conn.execute(
+                        """
+                        INSERT INTO artifacts (session_id, turn_id, name, path, type, status, description)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(session_id, turn_id) DO UPDATE SET
+                            name = excluded.name,
+                            path = excluded.path,
+                            type = excluded.type,
+                            status = excluded.status,
+                            description = excluded.description
+                        """,
+                        (session, turn, art.get("name"), art.get("path"), art.get("type"), art.get("status"), art.get("description")),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO artifacts (session_id, turn_id, name)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(session_id, turn_id) DO UPDATE SET name = excluded.name
+                        """,
+                        (session, turn, art),
+                    )
 
-            # Upsert issue
-            if entry.get("issue"):
-                conn.execute(
-                    """
-                    INSERT INTO issues (session_id, turn_id, title, symptom, root_cause, fix, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(session_id, turn_id) DO UPDATE SET
-                        title = excluded.title,
-                        symptom = excluded.symptom,
-                        root_cause = excluded.root_cause,
-                        fix = excluded.fix,
-                        status = excluded.status
-                    """,
-                    (session, turn, entry.get("issue"), None, None, None, None),
-                )
+            # Upsert issue (new format: dict, old format: string fallback)
+            iss = entry.get("issue")
+            if iss:
+                if isinstance(iss, dict):
+                    conn.execute(
+                        """
+                        INSERT INTO issues (session_id, turn_id, title, symptom, root_cause, fix, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(session_id, turn_id) DO UPDATE SET
+                            title = excluded.title,
+                            symptom = excluded.symptom,
+                            root_cause = excluded.root_cause,
+                            fix = excluded.fix,
+                            status = excluded.status
+                        """,
+                        (session, turn, iss.get("title"), iss.get("symptom"), iss.get("root_cause"), iss.get("fix"), iss.get("status")),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO issues (session_id, turn_id, title)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(session_id, turn_id) DO UPDATE SET title = excluded.title
+                        """,
+                        (session, turn, iss),
+                    )
 
             # Update message_count
             conn.execute(

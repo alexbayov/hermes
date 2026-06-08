@@ -26,9 +26,10 @@ version: 1.2
 
 ## Scripts
 - `init_db.py` — initialize schema (run once)
-- `migrate_schema.py` — idempotent schema migrations with backup-first safety
-- `persist.py` — unified turn logging with decisions/artifacts/issues
+- `migrate_schema.py` — idempotent schema migrations with backup-first safety (v4: UNIQUE indexes for decisions/artifacts/issues)
+- `persist.py` — unified turn logging with decisions/artifacts/issues (journal.log dual-write with full dict payloads)
 - `validate_last_turn.py` — startup integrity check (gaps, missing assistant turn, active session)
+- `validate_and_repair.py` — backfill missing DB rows from journal.log idempotently (reverse read, dedup, REPAIR issues)
 - `resume_context.py` — restore context from DB, traverses parent sessions with token budget
 - `memory_health.py` — DB diagnostics: gaps, orphans, size, stats, recommendations
 - `memory_query.py` — keyword search across messages, decisions, artifacts, issues
@@ -123,9 +124,21 @@ python3 /root/.hermes/scripts/memory_query.py SQLite   # search messages for 'SQ
 python3 /root/.hermes/scripts/memory_query.py -t decisions memory   # search decisions
 ```
 
+## Validate and repair (journal.log backfill)
+When DB is missing turns that exist in `journal.log` (crash, write failure, schema issue):
+```bash
+python3 /root/.hermes/scripts/validate_and_repair.py --session-id <SESSION_ID> --dry-run
+python3 /root/.hermes/scripts/validate_and_repair.py --session-id <SESSION_ID>            # live repair
+```
+- Reads `journal.log` newest-first, deduplicates by identity key (newest wins)
+- Backfills missing `messages`/`decisions`/`artifacts`/`issues` rows idempotently (`ON CONFLICT`/`INSERT OR IGNORE`)
+- Logs `REPAIR-{turn_id}` issue records with counts per table
+- Fully idempotent: re-running reports zero if nothing missing
+- Supports both old (string) and new (dict) journal.log formats for decisions/artifacts/issues
+
 ## Schema migrations
 ```bash
-python3 /root/.hermes/scripts/migrate_schema.py --target 3   # apply up to v3
+python3 /root/.hermes/scripts/migrate_schema.py --target 4   # apply up to v4 (UNIQUE indexes for repair idempotency)
 python3 /root/.hermes/scripts/migrate_schema.py --no-backup  # skip backup (dangerous)
 ```
 
@@ -169,6 +182,8 @@ Every change to `messages`, `decisions`, `artifacts`, `issues` is automatically 
 - **VACUUM INTO inside a transaction:** `VACUUM INTO` cannot run inside an explicit `BEGIN ... COMMIT` block. If using `db_utils.tx()` (which wraps `BEGIN IMMEDIATE`), create a **fresh `sqlite3.connect()`** for the backup instead. See `references/sqlite-common-bugs.md`.
 - **Thread-local connection staleness:** `db_utils.get_conn()` caches connections per thread. If any code calls `.close()` on that connection (e.g., in `backup()`), the next `get_conn()` returns the **closed** handle. Fix: verify liveness with a `SELECT 1` probe and re-create if dead. See `references/sqlite-common-bugs.md`.
 - **`git status --short` parsing fragility:** The status column is **2 characters** (e.g., ` M`, `??`). Parsing with `line[3:]` drops the first character of the filename. Use `line.split(maxsplit=1)[1]` instead. This affects `auto_commit.py` and any script that parses `git status`.
+- **`op_log.op` CHECK constraint is lowercase:** `op_log` table has `CHECK (op IN ('insert', 'update', 'delete'))` (lowercase). The trigger SQL must emit lowercase values (`'insert'`, `'update'`, `'delete'`), not `'INSERT'`, `'UPDATE'`, `'DELETE'`. Mismatch causes `IntegrityError: CHECK constraint failed`. If triggers are created with uppercase, the `op` column silently rejects all writes. This was caught in production when `apply_triggers.py` v1 emitted uppercase `op` values. Fix: map `INSERT` → `'insert'` in trigger body. See `references/apply-triggers-design.md`.
+- **Trigger `json_object()` requires SQLite 3.38+:** The `json_object()` SQL function used in `apply_triggers.py` for `old_value`/`new_value` snapshots requires SQLite 3.38.0 or later. Ubuntu 22.04 ships SQLite 3.37.2 which does NOT support `json_object()`. Check `sqlite3.sqlite_version` before running `apply_triggers.py`. If too old, either upgrade SQLite or use manual string concatenation (`'{"id":' || NEW.id || ...}`).
 
 ## Auto-commit workflow (user preference)
 
@@ -196,6 +211,7 @@ git push origin main
 - `references/parent-chain-session-lifecycle.md` — how session linkage survives reboots, and the per-session gap-detection fix
 - `references/diagnostic-scripts.md` — `memory_health.py` and `memory_query.py` usage
 - `references/sqlite-common-bugs.md` — cursor vs connection, global aggregates, WAL mode, FK pragmas
+- `references/apply-triggers-design.md` — design notes for `apply_triggers.py`: SQLite trigger audit logging, `json_object()` snapshots, lowercase `op` pitfall, Victor direct endpoint provenance
 - `references/victor-p0-spec.md` — condensed P0 implementation: `db_utils.py`, `migrate_schema.py`, retry decorators, WAL
 - `references/victor-v2-spec.md` — condensed full architecture: compaction tiers, memory.md budget, event sourcing, edge cases
 - Full P0 implementation: `/root/.hermes/plans/victor-p0-implementation.md` (30KB)
