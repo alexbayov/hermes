@@ -138,7 +138,7 @@ python3 /root/.hermes/scripts/validate_and_repair.py --session-id <SESSION_ID>  
 
 ## Schema migrations
 ```bash
-python3 /root/.hermes/scripts/migrate_schema.py --target 4   # apply up to v4 (UNIQUE indexes for repair idempotency)
+python3 /root/.hermes/scripts/migrate_schema.py --target 5   # apply up to v5 (retention_runs + indexes)
 python3 /root/.hermes/scripts/migrate_schema.py --no-backup  # skip backup (dangerous)
 ```
 
@@ -170,7 +170,39 @@ Every change to `messages`, `decisions`, `artifacts`, `issues` is automatically 
 - Uses `json_object()` (SQLite 3.38+) for structured snapshots
 - Enables disaster recovery: replay `op_log` rows to reconstruct any deleted/modified record
 
-## Pitfalls
+## Retention and garbage collection (implemented)
+```bash
+python3 /root/.hermes/scripts/retention.py --dry-run   # show plan only
+python3 /root/.hermes/scripts/retention.py --apply       # execute
+```
+
+What it does (in order):
+1. `PRAGMA quick_check` — abort if not 'ok'
+2. `VACUUM INTO` backup — standalone, no WAL/SHM copy (fixes the backup bug)
+3. `prune_backups()` — GFS rotation (daily=7, weekly=4, monthly=6), verify survivors with quick_check
+4. `rotate_journal()` — fsync, rename, gzip when >50MB; only rotate confirmed materialized entries (turn_id ≤ MAX(messages.turn_id))
+5. `prune_op_log()` — batched DELETE (5k per txn), `PRAGMA wal_checkpoint` after; keeps 30 days / 200k rows
+6. `purge_archived_sessions()` — delete status=archived/compacted older than 180 days, respect FK (skip if live decisions/artifacts/open issues)
+7. `PRAGMA incremental_vacuum` (if auto_vacuum=INCREMENTAL)
+8. Write metrics row to `retention_runs` table + emit `RETENTION-{run_id}` issue record
+
+Config: JSON at `/root/.hermes/config/retention.json` (optional; defaults inline).
+
+## Indexing recommendations
+
+Run these **before** the message table hits 10k rows:
+
+```sql
+CREATE INDEX IF NOT EXISTS ix_messages_session_turn ON messages(session_id, turn_id);
+CREATE INDEX IF NOT EXISTS ix_decisions_session_active ON decisions(session_id, active);
+CREATE INDEX IF NOT EXISTS ix_artifacts_session_status ON artifacts(session_id, status);
+CREATE INDEX IF NOT EXISTS ix_oplog_created           ON op_log(created_at);
+-- run after bulk load:
+PRAGMA optimize;
+ANALYZE;
+```
+
+Future: `FTS5` (keyword search) and/or `sqlite-vec` (semantic embeddings) for relevance-based recall instead of recency-only parent_chain traversal. This is the single biggest capability gap per Viktor's review.
 - **Never skip the end-of-turn ritual.** If you don't log, the next session will not know what happened. validate_last_turn.py will catch it.
 - Content should be **concise summaries** (200-500 chars), not full tool output. Use `--tool-result` for full JSON if needed.
 - If `turn_id` conflicts, ON CONFLICT will update the existing row. This is safe.
@@ -183,9 +215,15 @@ Every change to `messages`, `decisions`, `artifacts`, `issues` is automatically 
 - **Thread-local connection staleness:** `db_utils.get_conn()` caches connections per thread. If any code calls `.close()` on that connection (e.g., in `backup()`), the next `get_conn()` returns the **closed** handle. Fix: verify liveness with a `SELECT 1` probe and re-create if dead. See `references/sqlite-common-bugs.md`.
 - **`git status --short` parsing fragility:** The status column is **2 characters** (e.g., ` M`, `??`). Parsing with `line[3:]` drops the first character of the filename. Use `line.split(maxsplit=1)[1]` instead. This affects `auto_commit.py` and any script that parses `git status`.
 - **`op_log.op` CHECK constraint is lowercase:** `op_log` table has `CHECK (op IN ('insert', 'update', 'delete'))` (lowercase). The trigger SQL must emit lowercase values (`'insert'`, `'update'`, `'delete'`), not `'INSERT'`, `'UPDATE'`, `'DELETE'`. Mismatch causes `IntegrityError: CHECK constraint failed`. If triggers are created with uppercase, the `op` column silently rejects all writes. This was caught in production when `apply_triggers.py` v1 emitted uppercase `op` values. Fix: map `INSERT` → `'insert'` in trigger body. See `references/apply-triggers-design.md`.
+- **Journal.log format upgrade for repair:** `persist.py` (v2+) writes full dict payloads for `decisions`/`artifacts`/`issues` into `journal.log` (e.g., `{"title": "...", "choice": "...", "rationale": "..."}`). This is required for `validate_and_repair.py` to compute identity keys (`(session_id, turn_id, title)`) and deduplicate correctly. Old string-only entries (e.g., `"DB choice"`) still parse but lose the `rationale`/`rejected` fields on backfill. If you see `REPAIR` issues with missing rationale, the journal.log has old-format entries. See `references/validate-and-repair-architecture.md`.
 - **Trigger `json_object()` requires SQLite 3.38+:** The `json_object()` SQL function used in `apply_triggers.py` for `old_value`/`new_value` snapshots requires SQLite 3.38.0 or later. Ubuntu 22.04 ships SQLite 3.37.2 which does NOT support `json_object()`. Check `sqlite3.sqlite_version` before running `apply_triggers.py`. If too old, either upgrade SQLite or use manual string concatenation (`'{"id":' || NEW.id || ...}`).
-
-## Auto-commit workflow (user preference)
+- **Backup bug: VACUUM INTO + WAL/SHM copy = corruption:** `VACUUM INTO` produces a fully checkpointed, standalone DB with NO WAL/SHM. Copying live WAL/SHM on top creates stale frames / orphan sidecars that SQLite will replay onto mismatched pages. **Fix:** use VACUUM INTO alone, OR `wal_checkpoint(TRUNCATE)` + cold copy — never mix. Verify every backup by opening read-only + `PRAGMA quick_check`. See `references/retention-roadmap.md`.
+- **Durability pragmas must be explicit:** WAL mode alone doesn't guarantee crash survival. Set per-connection: `PRAGMA synchronous=NORMAL` (use FULL if last txn cannot be lost), `PRAGMA busy_timeout=5000`, `PRAGMA wal_autocheckpoint=1000`, `PRAGMA foreign_keys=ON` (not inherited). `retry_on_lock` (3×100/200/400ms) is a backup, not a replacement for `busy_timeout`. See `references/viktor-architecture-review-2026-06-08.md`.
+- **Journal.log write-ahead ordering:** Crash recovery only holds if journal is durably flushed **before** the DB commit: `append → flush() + os.fsync(fd) → then DB write`. If DB is written first, journal.log is just a mirror and cannot recover the lost tail. DB = source of truth; journal = WAL for replay. See `references/viktor-architecture-review-2026-06-08.md`.
+- **Bidirectional sync_journal is an anti-pattern:** Never build log↔DB bidirectional sync. It needs conflict resolution and invites split-brain. Keep one-way: journal = append-only WAL, DB = materialized state, `validate_and_repair` = replay. See `references/viktor-architecture-review-2026-06-08.md`.
+- **Recency-only recall is a product gap:** `resume_context` traverses parent_chain under a token budget — this is recency bias, not relevance. The real value of long-term memory is pulling the *right* old context, not the *recent* one. Add `FTS5` (keyword) and/or `sqlite-vec` (semantic embeddings) over messages/decisions/artifacts. This is the single biggest missing capability. See `references/viktor-architecture-review-2026-06-08.md`.
+- **Ordering by wall-clock is fragile:** Clock skew/NTP step can reorder turns. Use monotonic `rowid`/autoincrement as the ordering key; keep timestamps as metadata only. See `references/viktor-architecture-review-2026-06-08.md`.
+- **Crash recovery is untested until fault-injected:** A durability claim that hasn't been tested with `kill -9` mid-persist is a hope, not a guarantee. Add a fault-injection test: kill mid-write → run `validate_and_repair` → assert DB == expected. See `references/viktor-architecture-review-2026-06-08.md`.
 
 When skill files (SKILL.md, scripts/, references/, plans/) change, **commit and push immediately** to the repo. Do not accumulate changes — user explicitly wants protection against data loss.
 
@@ -211,9 +249,12 @@ git push origin main
 - `references/parent-chain-session-lifecycle.md` — how session linkage survives reboots, and the per-session gap-detection fix
 - `references/diagnostic-scripts.md` — `memory_health.py` and `memory_query.py` usage
 - `references/sqlite-common-bugs.md` — cursor vs connection, global aggregates, WAL mode, FK pragmas
+- `references/validate-and-repair-architecture.md` — Viktor's design for reverse JSONL replay, dedup, idempotent backfill, identity keys (code-only atomic questioning, 2025-06-08)
 - `references/apply-triggers-design.md` — design notes for `apply_triggers.py`: SQLite trigger audit logging, `json_object()` snapshots, lowercase `op` pitfall, Victor direct endpoint provenance
 - `references/victor-p0-spec.md` — condensed P0 implementation: `db_utils.py`, `migrate_schema.py`, retry decorators, WAL
 - `references/victor-v2-spec.md` — condensed full architecture: compaction tiers, memory.md budget, event sourcing, edge cases
 - Full P0 implementation: `/root/.hermes/plans/victor-p0-implementation.md` (30KB)
 - Full v2 architecture: `/root/.hermes/plans/eni-memory-v2-spec.md` (61KB)
 - P1 plan: `/root/.hermes/plans/p1-implementation.md` — 7-phase implementation (WAL, migrations, compaction, undo, backup, auto-commit, token counting)
+- `references/viktor-architecture-review-2026-06-08.md` — Viktor's architecture review: backup bug, durability pragmas, unbounded growth, relevance-based recall gap, bidirectional sync anti-pattern, crash-recovery fault injection (2026-06-08, direct endpoint, no ENI context)
+- `references/retention-roadmap.md` — Viktor's design sketch for `retention.py`: GFS backup rotation, op_log/journal pruning, archived session purge, metrics, safety rails, implementation checklist

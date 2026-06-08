@@ -50,6 +50,27 @@ MIGRATIONS = {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_artifacts_unique ON artifacts(session_id, turn_id, name);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_unique ON issues(session_id, turn_id, title);
     """,
+    5: """
+        CREATE TABLE IF NOT EXISTS retention_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT NOT NULL DEFAULT (datetime('now')),
+            ended_at TEXT,
+            db_size_mb REAL,
+            wal_size_mb REAL,
+            op_log_rows_before INTEGER,
+            op_log_rows_deleted INTEGER,
+            journal_bytes_before INTEGER,
+            journal_rotations INTEGER,
+            backups_deleted INTEGER,
+            sessions_purged INTEGER,
+            status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'failed')),
+            error TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_messages_session_turn ON messages(session_id, turn_id);
+        CREATE INDEX IF NOT EXISTS idx_decisions_session_active ON decisions(session_id, active);
+        CREATE INDEX IF NOT EXISTS idx_artifacts_session_status ON artifacts(session_id, status);
+        CREATE INDEX IF NOT EXISTS idx_oplog_created ON op_log(created_at);
+    """,
 }
 
 

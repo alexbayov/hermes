@@ -108,3 +108,4 @@ response_store.db-wal
 *.db-wal
 .tirith-install-failed
 .tirith-install-failed
+auth.json
