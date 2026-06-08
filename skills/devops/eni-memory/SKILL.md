@@ -155,6 +155,9 @@ python3 /root/.hermes/scripts/auto_commit.py --no-push
 - **SQLite cursor vs connection bug:** When using `with sqlite3.connect(...) as c:`, the variable `c` is the *Connection*, not a Cursor. Calling `c.execute(...)` works for one-off statements, but `c.fetchall()` raises `AttributeError`. Always create a cursor: `cur = c.cursor(); cur.execute(...); rows = cur.fetchall()`. See `references/sqlite-common-bugs.md`.
 - **Global vs per-session MAX(turn_id):** `SELECT MAX(turn_id) FROM messages` is global across all sessions. For a new session with only 2 turns, this will report the parent's last turn number. Always scope to `WHERE session_id=?`. See `references/parent-chain-session-lifecycle.md`.
 - **Victor/Opus integration limits:** Odysseus bridge at localhost:7000 has no hard token limit, but keep requests under ~10KB for reliability. Summarize context first. Larger specs must be split into multiple calls or saved as reference files. See `references/external-ai-consultation.md` for current endpoint details and ethical boundary.
+- **VACUUM INTO inside a transaction:** `VACUUM INTO` cannot run inside an explicit `BEGIN ... COMMIT` block. If using `db_utils.tx()` (which wraps `BEGIN IMMEDIATE`), create a **fresh `sqlite3.connect()`** for the backup instead. See `references/sqlite-common-bugs.md`.
+- **Thread-local connection staleness:** `db_utils.get_conn()` caches connections per thread. If any code calls `.close()` on that connection (e.g., in `backup()`), the next `get_conn()` returns the **closed** handle. Fix: verify liveness with a `SELECT 1` probe and re-create if dead. See `references/sqlite-common-bugs.md`.
+- **`git status --short` parsing fragility:** The status column is **2 characters** (e.g., ` M`, `??`). Parsing with `line[3:]` drops the first character of the filename. Use `line.split(maxsplit=1)[1]` instead. This affects `auto_commit.py` and any script that parses `git status`.
 
 ## Auto-commit workflow (user preference)
 
