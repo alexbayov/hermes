@@ -1,12 +1,20 @@
 # Direct Endpoint Usage Log (2025-06-08)
 
+## Endpoint topology
+
+Two independent paths to the same `claude4_7_opus` (Viktor) backend:
+- **SSH tunnel**: `http://127.0.0.1:8799/v1/chat/completions` — inside VPS
+- **socat bridge**: `http://172.17.0.1:8799/v1/chat/completions` — Docker bridge
+
+Both are live simultaneously. If one fails (connection refused), try the other immediately.
+
 ## Endpoint details
-- **URL**: `http://127.0.0.1:8799/v1/chat/completions`
 - **Model**: `viktor` (claude4_7_opus)
-- **Auth**: `Authorization: Bearer *** (static, no dynamic token)
+- **Auth**: `Authorization: Bearer viktor` (static, no dynamic token)
 - **Format**: OpenAI-compatible (`choices[0].message.content`)
-- **Latency**: ~200 seconds for atomic questions (SQLite triggers, ~500 tokens response)
+- **Latency**: **200–500 seconds** for code-heavy responses. This is NORMAL. Do NOT panic, do NOT re-check the port — just wait. Use `timeout=600` in `terminal`.
 - **Reliability**: 100% success rate for single atomic questions (1/1 tested)
+- **Response style**: Architectural review + skeleton/stubs, not always production-ready code. Expect correct design with TODO comments; implement the full version locally.
 
 ## Usage pattern
 ```python

@@ -1,510 +1,869 @@
-"""Unified garbage collector: backups, op_log, journal.log, archived sessions.
-
-Design based on Viktor architecture review (2026-06-08).
---dry-run by default; --apply required to mutate.
+#!/usr/bin/env python3
 """
+retention.py -- garbage-collection / retention toolkit for the Hermes SQLite
+persistent-memory store.
+
+Performs, in a single idempotent pass:
+  * integrity gate (quick_check) before any work
+  * VACUUM INTO backup + per-backup quick_check verification
+  * GFS backup rotation (daily / weekly / monthly)
+  * op_log pruning (age + hard row cap), batched
+  * journal.log size-based rotation + gzip, only for materialized entries
+  * archived/compacted session purge, respecting foreign-key references
+  * metrics row in retention_runs
+  * summary issue row in issues
+
+Stdlib only. Dry-run is the default; pass --apply to actually mutate anything.
+"""
+
+from __future__ import annotations
+
 import argparse
 import gzip
 import json
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import time
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+import traceback
+from datetime import datetime, timezone
 
-# ------------------------------------------------------------------
-# Paths
-# ------------------------------------------------------------------
-DB_DIR = "/root/.hermes/data"
-DB_PATH = os.path.join(DB_DIR, "eni_memory.db")
-BACKUP_DIR = os.path.join(DB_DIR, "backup")
-JOURNAL_PATH = os.path.join(DB_DIR, "journal.log")
-CONFIG_PATH = "/root/.hermes/config/retention.json"
+# --------------------------------------------------------------------------- #
+# Defaults / configuration
+# --------------------------------------------------------------------------- #
 
-# ------------------------------------------------------------------
-# Defaults (config overrides)
-# ------------------------------------------------------------------
+DEFAULT_DB_PATH = "/root/.hermes/data/eni_memory.db"
+DEFAULT_BACKUP_DIR = "/root/.hermes/data/backup/"
+DEFAULT_JOURNAL_PATH = "/root/.hermes/data/journal.log"
+DEFAULT_CONFIG_PATH = "/root/.hermes/config/retention.json"
+
 DEFAULTS = {
-    "backups": {
-        "keep_daily": 7,
-        "keep_weekly": 4,
-        "keep_monthly": 6,
-    },
-    "op_log": {
-        "keep_days": 30,
-        "keep_rows": 200_000,
-    },
-    "journal": {
-        "rotate_at_mb": 50,
-        "keep_rotations": 10,
-    },
-    "archived_sessions": {
-        "purge_after_days": 180,
-    },
+    "db_path": DEFAULT_DB_PATH,
+    "backup_dir": DEFAULT_BACKUP_DIR,
+    "journal_path": DEFAULT_JOURNAL_PATH,
+    "backup_prefix": "eni_memory",
+    # GFS rotation
+    "keep_daily": 7,
+    "keep_weekly": 4,
+    "keep_monthly": 6,
+    # op_log prune
+    "op_log_retention_days": 30,
+    "op_log_max_rows": 200000,
+    "op_log_batch_size": 5000,
+    # journal rotation
+    "journal_max_bytes": 50 * 1024 * 1024,  # 50 MB
+    "journal_keep_rotations": 10,
+    # session purge
+    "session_purge_days": 180,
 }
 
-# Hard floor — never go below this
-HARD_FLOOR = {
-    "backups": 1,
-    "op_log_rows": 1000,
-    "journal_rotations": 1,
-    "archived_sessions": 0,
-}
+# filenames look like:  eni_memory_YYYYMMDD_HHMMSS.db
+BACKUP_RE = re.compile(r"^(?P<prefix>.+)_(?P<ts>\d{8}_\d{6})\.db$")
 
 
-def _load_config() -> dict:
-    if os.path.exists(CONFIG_PATH):
-        try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"[WARN] Could not read config ({e}), using defaults", file=sys.stderr)
-    return {}
+# --------------------------------------------------------------------------- #
+# Small helpers
+# --------------------------------------------------------------------------- #
+
+def log(msg: str) -> None:
+    print(f"[retention] {msg}", flush=True)
 
 
-def _merge_config(cfg: dict) -> dict:
-    merged = {}
-    for key, default in DEFAULTS.items():
-        merged[key] = {**default, **cfg.get(key, {})}
-    return merged
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-# ------------------------------------------------------------------
-# SQLite helpers
-# ------------------------------------------------------------------
-def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, timeout=30.0)
-    conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA synchronous = NORMAL;")
+def iso(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def file_size(path: str) -> int:
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
+def mb(n_bytes: int) -> float:
+    return round(n_bytes / (1024 * 1024), 3)
+
+
+def load_config(path: str) -> dict:
+    cfg = dict(DEFAULTS)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            user_cfg = json.load(fh)
+        if isinstance(user_cfg, dict):
+            cfg.update({k: v for k, v in user_cfg.items() if v is not None})
+            log(f"loaded config overrides from {path}")
+        else:
+            log(f"config at {path} is not a JSON object; using defaults")
+    except FileNotFoundError:
+        log(f"no config file at {path}; using inline defaults")
+    except (json.JSONDecodeError, OSError) as exc:
+        log(f"could not read config {path}: {exc}; using inline defaults")
+    return cfg
+
+
+def connect(db_path: str) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_path, timeout=60.0)
+    conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.execute("PRAGMA busy_timeout = 60000;")
-    conn.execute("PRAGMA wal_autocheckpoint = 1000;")
     return conn
 
 
-def _integrity_check(conn: sqlite3.Connection) -> bool:
-    row = conn.execute("PRAGMA quick_check;").fetchone()
-    return row is not None and row[0] == "ok"
-
-
-# ------------------------------------------------------------------
-# Backup (VACUUM INTO only — fix the WAL/SHM copy bug)
-# ------------------------------------------------------------------
-def _backup_now() -> str:
-    """VACUUM INTO backup — standalone, no WAL/SHM copy."""
-    os.makedirs(BACKUP_DIR, exist_ok=True)
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    dst = os.path.join(BACKUP_DIR, f"eni_memory_{ts}.db")
-    # VACUUM INTO requires autocommit (no explicit transaction)
-    conn = sqlite3.connect(DB_PATH, timeout=30.0, isolation_level=None)
-    try:
-        conn.execute(f"VACUUM INTO '{dst}';")
-    finally:
-        conn.close()
-    # fsync file + directory
-    os.sync()
-    # Verify backup opens and passes quick_check
-    verify_conn = sqlite3.connect(f"file:{dst}?mode=ro", uri=True)
-    try:
-        if not _integrity_check(verify_conn):
-            raise RuntimeError(f"Backup integrity check failed: {dst}")
-    finally:
-        verify_conn.close()
-    print(f"  Backup OK: {dst}")
-    return dst
-
-
-def _list_backups() -> List[Tuple[str, datetime]]:
-    pattern = re.compile(r"eni_memory_(\d{8})_(\d{6})\.db$")
-    backups = []
-    for name in os.listdir(BACKUP_DIR):
-        m = pattern.match(name)
-        if m:
-            dt = datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S")
-            backups.append((os.path.join(BACKUP_DIR, name), dt))
-    backups.sort(key=lambda x: x[1], reverse=True)
-    return backups
-
-
-def _gfs_bucket(backups: List[Tuple[str, datetime]]) -> Dict[str, set]:
-    """Bucket backups into GFS tiers: daily, weekly, monthly."""
-    daily = set()
-    weekly = set()
-    monthly = set()
-    for path, dt in backups:
-        daily.add((dt.year, dt.month, dt.day))
-        weekly.add((dt.year, dt.isocalendar().week))
-        monthly.add((dt.year, dt.month))
-    # Keep newest N per tier
-    return {"daily": daily, "weekly": weekly, "monthly": monthly}
-
-
-def _prune_backups(cfg: dict, dry_run: bool) -> int:
-    keep_daily = max(cfg["backups"]["keep_daily"], HARD_FLOOR["backups"])
-    keep_weekly = max(cfg["backups"]["keep_weekly"], 1)
-    keep_monthly = max(cfg["backups"]["keep_monthly"], 1)
-    backups = _list_backups()
-    if not backups:
-        return 0
-    # Collect keepers
-    keepers = set()
-    # Always keep the newest backup
-    keepers.add(backups[0][0])
-    # Daily: keep newest per day up to keep_daily
-    daily_seen = {}
-    for path, dt in backups:
-        key = (dt.year, dt.month, dt.day)
-        if key not in daily_seen and len(daily_seen) < keep_daily:
-            daily_seen[key] = path
-            keepers.add(path)
-    # Weekly: keep newest per week up to keep_weekly
-    weekly_seen = {}
-    for path, dt in backups:
-        key = (dt.year, dt.isocalendar().week)
-        if key not in weekly_seen and len(weekly_seen) < keep_weekly:
-            weekly_seen[key] = path
-            keepers.add(path)
-    # Monthly: keep newest per month up to keep_monthly
-    monthly_seen = {}
-    for path, dt in backups:
-        key = (dt.year, dt.month)
-        if key not in monthly_seen and len(monthly_seen) < keep_monthly:
-            monthly_seen[key] = path
-            keepers.add(path)
-    deleted = 0
-    for path, _ in backups:
-        if path not in keepers:
-            if dry_run:
-                print(f"  [dry-run] Would delete backup: {path}")
-            else:
-                os.remove(path)
-                print(f"  Deleted backup: {path}")
-            deleted += 1
-    return deleted
-
-
-# ------------------------------------------------------------------
-# op_log prune (batched)
-# ------------------------------------------------------------------
-def _prune_op_log(conn: sqlite3.Connection, cfg: dict, dry_run: bool) -> int:
-    keep_days = cfg["op_log"]["keep_days"]
-    keep_rows = max(cfg["op_log"]["keep_rows"], HARD_FLOOR["op_log_rows"])
-    cutoff_dt = datetime.utcnow() - timedelta(days=keep_days)
-    cutoff_iso = cutoff_dt.strftime("%Y-%m-%d %H:%M:%S")
-    # Determine rowid threshold for keep_rows
-    row_threshold = conn.execute(
-        "SELECT id FROM op_log ORDER BY id DESC LIMIT 1 OFFSET ?",
-        (keep_rows,),
+def table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ?",
+        (name,),
     ).fetchone()
-    row_threshold = row_threshold[0] if row_threshold else 0
-    # Count before
-    before = conn.execute(
-        "SELECT COUNT(*) FROM op_log WHERE created_at < ? OR id < ?",
-        (cutoff_iso, row_threshold),
-    ).fetchone()[0]
-    if before == 0:
-        return 0
-    if dry_run:
-        print(f"  [dry-run] Would delete {before} op_log rows")
-        return before
-    # Batched delete (5000 per txn) to avoid long write lock
-    batch = 5000
-    deleted = 0
-    while True:
-        cur = conn.execute(
-            "DELETE FROM op_log WHERE id IN ("
-            "SELECT id FROM op_log WHERE created_at < ? OR id < ? LIMIT ?"
-            ")",
-            (cutoff_iso, row_threshold, batch),
+    return row is not None
+
+
+def column_names(conn: sqlite3.Connection, table: str) -> set:
+    try:
+        return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+    except sqlite3.Error:
+        return set()
+
+
+def quick_check(conn: sqlite3.Connection) -> bool:
+    try:
+        rows = conn.execute("PRAGMA quick_check;").fetchall()
+    except sqlite3.Error as exc:
+        log(f"quick_check raised: {exc}")
+        return False
+    results = [str(r[0]).strip().lower() for r in rows]
+    ok = results == ["ok"]
+    if not ok:
+        log(f"quick_check failed: {results}")
+    return ok
+
+
+def quick_check_path(db_path: str) -> bool:
+    try:
+        c = sqlite3.connect(db_path, timeout=30.0)
+    except sqlite3.Error as exc:
+        log(f"cannot open {db_path} for verification: {exc}")
+        return False
+    try:
+        return quick_check(c)
+    finally:
+        c.close()
+
+
+# --------------------------------------------------------------------------- #
+# Schema bootstrap (only the tables this script owns)
+# --------------------------------------------------------------------------- #
+
+def ensure_retention_runs(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS retention_runs (
+            id                   INTEGER PRIMARY KEY,
+            started_at           TEXT,
+            ended_at             TEXT,
+            db_size_mb           REAL,
+            wal_size_mb          REAL,
+            op_log_rows_before   INTEGER,
+            op_log_rows_deleted  INTEGER,
+            journal_bytes_before INTEGER,
+            journal_rotations    INTEGER,
+            backups_deleted      INTEGER,
+            sessions_purged      INTEGER,
+            status               TEXT,
+            error                TEXT
+        );
+        """
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 1. Backups + GFS rotation
+# --------------------------------------------------------------------------- #
+
+def make_backup(conn: sqlite3.Connection, cfg: dict, apply: bool) -> str | None:
+    backup_dir = cfg["backup_dir"]
+    prefix = cfg["backup_prefix"]
+    ts = utcnow().strftime("%Y%m%d_%H%M%S")
+    target = os.path.join(backup_dir, f"{prefix}_{ts}.db")
+
+    if not apply:
+        log(f"[dry-run] would VACUUM INTO {target}")
+        return None
+
+    os.makedirs(backup_dir, exist_ok=True)
+    if os.path.exists(target):
+        log(f"backup target already exists, skipping create: {target}")
+        return target
+
+    # VACUUM INTO produces a single clean DB file (no -wal / -shm sidecars).
+    conn.execute("VACUUM INTO ?;", (target,))
+    log(f"created backup {target} ({mb(file_size(target))} MB)")
+
+    if not quick_check_path(target):
+        log(f"backup verification FAILED, removing bad file: {target}")
+        try:
+            os.remove(target)
+        except OSError as exc:
+            log(f"could not remove bad backup {target}: {exc}")
+        return None
+
+    log(f"backup verified ok: {target}")
+    return target
+
+
+def _parse_backup_ts(name: str, prefix: str) -> datetime | None:
+    m = BACKUP_RE.match(name)
+    if not m:
+        return None
+    if m.group("prefix") != prefix:
+        return None
+    try:
+        return datetime.strptime(m.group("ts"), "%Y%m%d_%H%M%S").replace(
+            tzinfo=timezone.utc
         )
-        conn.commit()
-        if cur.rowcount == 0:
-            break
-        deleted += cur.rowcount
-        if cur.rowcount < batch:
-            break
-    conn.execute("PRAGMA wal_checkpoint;")
-    print(f"  Deleted {deleted} op_log rows")
+    except ValueError:
+        return None
+
+
+def select_gfs_keep(backups: list[tuple[str, datetime]], cfg: dict) -> set:
+    """
+    Grandfather-Father-Son selection.
+
+    `backups` is a list of (path, datetime) for valid backups.
+    Returns the set of paths to KEEP.
+    """
+    keep: set = set()
+    # newest first
+    ordered = sorted(backups, key=lambda t: t[1], reverse=True)
+
+    def take(bucket_key, limit):
+        seen = {}
+        for path, dt in ordered:
+            k = bucket_key(dt)
+            # first (newest) backup we see for each bucket represents that bucket
+            if k not in seen:
+                seen[k] = path
+            if len(seen) >= limit:
+                break
+        keep.update(seen.values())
+
+    # daily: keep N most recent distinct calendar days
+    take(lambda d: d.strftime("%Y-%m-%d"), cfg["keep_daily"])
+    # weekly: keep N most recent distinct ISO weeks
+    take(lambda d: f"{d.isocalendar()[0]}-W{d.isocalendar()[1]:02d}", cfg["keep_weekly"])
+    # monthly: keep N most recent distinct months
+    take(lambda d: d.strftime("%Y-%m"), cfg["keep_monthly"])
+
+    return keep
+
+
+def rotate_backups(cfg: dict, apply: bool, just_created: str | None) -> int:
+    backup_dir = cfg["backup_dir"]
+    prefix = cfg["backup_prefix"]
+    if not os.path.isdir(backup_dir):
+        log(f"backup dir {backup_dir} does not exist; nothing to rotate")
+        return 0
+
+    candidates: list[tuple[str, datetime]] = []
+    for name in os.listdir(backup_dir):
+        dt = _parse_backup_ts(name, prefix)
+        if dt is None:
+            continue
+        candidates.append((os.path.join(backup_dir, name), dt))
+
+    if not candidates:
+        log("no parseable backups found to rotate")
+        return 0
+
+    keep = select_gfs_keep(candidates, cfg)
+    # never delete the backup we just made this run
+    if just_created:
+        keep.add(just_created)
+
+    to_delete = [p for p, _ in candidates if p not in keep]
+    to_delete.sort()
+
+    log(
+        f"backups: {len(candidates)} total, keep {len(keep)}, "
+        f"delete {len(to_delete)}"
+    )
+
+    deleted = 0
+    for path in to_delete:
+        if not apply:
+            log(f"[dry-run] would delete backup {os.path.basename(path)}")
+            deleted += 1
+            continue
+        try:
+            os.remove(path)
+            deleted += 1
+            log(f"deleted backup {os.path.basename(path)}")
+        except OSError as exc:
+            log(f"could not delete {path}: {exc}")
     return deleted
 
 
-# ------------------------------------------------------------------
-# journal.log rotation
-# ------------------------------------------------------------------
-def _rotate_journal(conn: sqlite3.Connection, cfg: dict, dry_run: bool) -> int:
-    rotate_at_mb = cfg["journal"]["rotate_at_mb"]
-    keep_rotations = max(cfg["journal"]["keep_rotations"], HARD_FLOOR["journal_rotations"])
-    if not os.path.exists(JOURNAL_PATH):
+# --------------------------------------------------------------------------- #
+# 2. op_log prune
+# --------------------------------------------------------------------------- #
+
+def op_log_counts(conn: sqlite3.Connection) -> int:
+    if not table_exists(conn, "op_log"):
         return 0
-    size_bytes = os.path.getsize(JOURNAL_PATH)
-    size_mb = size_bytes / (1024 * 1024)
-    if size_mb < rotate_at_mb:
+    return conn.execute("SELECT COUNT(*) FROM op_log;").fetchone()[0]
+
+
+def prune_op_log(conn: sqlite3.Connection, cfg: dict, apply: bool) -> int:
+    if not table_exists(conn, "op_log"):
+        log("op_log table absent; skipping prune")
         return 0
-    # Only rotate if all entries are materialized in DB
-    max_turn_db = conn.execute("SELECT COALESCE(MAX(turn_id), 0) FROM messages").fetchone()[0]
-    # Read last line of journal to check max turn_id in it
-    last_turn = 0
+
+    cols = column_names(conn, "op_log")
+    if "id" not in cols:
+        log("op_log has no id column; skipping prune")
+        return 0
+
+    days = int(cfg["op_log_retention_days"])
+    max_rows = int(cfg["op_log_max_rows"])
+    batch = int(cfg["op_log_batch_size"])
+
+    # Hard row-cap boundary: keep at most max_rows newest rows.
+    cap_row = conn.execute(
+        "SELECT id FROM op_log ORDER BY id DESC LIMIT 1 OFFSET ?;",
+        (max_rows,),
+    ).fetchone()
+    cap_id = cap_row[0] if cap_row else None
+
+    has_created = "created_at" in cols
+
+    # Build the predicate identifying rows eligible for deletion.
+    # age-based OR hard-cap-based.
+    where_parts = []
+    params: list = []
+    if has_created:
+        where_parts.append("created_at < datetime('now', ?)")
+        params.append(f"-{days} days")
+    if cap_id is not None:
+        where_parts.append("id < ?")
+        params.append(cap_id)
+
+    if not where_parts:
+        log("op_log: nothing matches prune criteria")
+        return 0
+
+    where_clause = " OR ".join(where_parts)
+
+    eligible = conn.execute(
+        f"SELECT COUNT(*) FROM op_log WHERE {where_clause};", params
+    ).fetchone()[0]
+
+    if eligible == 0:
+        log("op_log: 0 rows eligible for prune")
+        return 0
+
+    if not apply:
+        log(f"[dry-run] would prune {eligible} op_log rows (batched {batch})")
+        return eligible
+
+    # Batched delete: select a window of ids, then delete by id.
+    total_deleted = 0
+    while True:
+        ids = [
+            r[0]
+            for r in conn.execute(
+                f"SELECT id FROM op_log WHERE {where_clause} LIMIT ?;",
+                params + [batch],
+            ).fetchall()
+        ]
+        if not ids:
+            break
+        placeholders = ",".join("?" * len(ids))
+        with conn:  # one transaction per batch
+            cur = conn.execute(
+                f"DELETE FROM op_log WHERE id IN ({placeholders});", ids
+            )
+            total_deleted += cur.rowcount if cur.rowcount != -1 else len(ids)
+        log(f"op_log: deleted batch of {len(ids)} (total {total_deleted})")
+
+    # checkpoint WAL after the prune
     try:
-        with open(JOURNAL_PATH, "r", encoding="utf-8") as f:
-            for line in f:
-                try:
-                    rec = json.loads(line)
-                    last_turn = max(last_turn, rec.get("turn_id", 0))
-                except Exception:
-                    pass
-    except Exception:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        log("op_log: wal_checkpoint(TRUNCATE) done")
+    except sqlite3.Error as exc:
+        log(f"wal_checkpoint failed: {exc}")
+
+    return total_deleted
+
+
+# --------------------------------------------------------------------------- #
+# 3. journal.log rotation
+# --------------------------------------------------------------------------- #
+
+def materialized_turn_id(conn: sqlite3.Connection) -> int | None:
+    if not table_exists(conn, "messages"):
+        return None
+    if "turn_id" not in column_names(conn, "messages"):
+        return None
+    row = conn.execute("SELECT MAX(turn_id) FROM messages;").fetchone()
+    return row[0] if row and row[0] is not None else None
+
+
+_JOURNAL_TURN_RE = re.compile(r'"turn_id"\s*:\s*(\d+)')
+
+
+def _entry_turn_id(line: str) -> int | None:
+    """Best-effort extraction of turn_id from a journal line (JSON or kv)."""
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        obj = json.loads(line)
+        if isinstance(obj, dict) and "turn_id" in obj:
+            return int(obj["turn_id"])
+    except (json.JSONDecodeError, ValueError, TypeError):
         pass
-    if last_turn > max_turn_db:
-        print(f"  [SKIP] Journal has unmaterialized turns (journal turn {last_turn} > DB turn {max_turn_db})")
-        return 0
-    if dry_run:
-        print(f"  [dry-run] Would rotate journal ({size_mb:.1f} MB)")
-        return 1
-    # fsync + rotate
-    with open(JOURNAL_PATH, "a", encoding="utf-8") as f:
-        f.flush()
-        os.fsync(f.fileno())
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    rotated = os.path.join(DB_DIR, f"journal.{ts}.log")
-    os.rename(JOURNAL_PATH, rotated)
-    # gzip
-    with open(rotated, "rb") as f_in:
-        with gzip.open(rotated + ".gz", "wb") as f_out:
-            f_out.writelines(f_in)
-    os.remove(rotated)
-    # open fresh journal
-    with open(JOURNAL_PATH, "w", encoding="utf-8") as f:
-        f.flush()
-        os.fsync(f.fileno())
-    # Clean old rotations
-    rotations = sorted(
-        [p for p in os.listdir(DB_DIR) if re.match(r"journal\.\d{8}_\d{6}\.log\.gz$", p)],
-        reverse=True,
-    )
-    removed = 0
-    for old in rotations[keep_rotations:]:
-        os.remove(os.path.join(DB_DIR, old))
-        removed += 1
-    print(f"  Rotated journal -> {rotated}.gz, removed {removed} old rotations")
-    return 1 + removed
-
-
-# ------------------------------------------------------------------
-# Archived session purge
-# ------------------------------------------------------------------
-def _purge_archived_sessions(conn: sqlite3.Connection, cfg: dict, dry_run: bool) -> int:
-    purge_days = cfg["archived_sessions"]["purge_after_days"]
-    cutoff_iso = (datetime.utcnow() - timedelta(days=purge_days)).strftime("%Y-%m-%d %H:%M:%S")
-    # Find candidate sessions
-    rows = conn.execute(
-        "SELECT id FROM sessions WHERE status IN ('archived', 'compacted')"
-        " AND (ended_at IS NOT NULL AND ended_at < ?)",
-        (cutoff_iso,),
-    ).fetchall()
-    if not rows:
-        return 0
-    # Respect FK: skip if any live decision/artifact/issue still references them
-    to_delete = []
-    for (sid,) in rows:
-        has_refs = conn.execute(
-            "SELECT 1 FROM decisions WHERE session_id = ? AND active = 1 LIMIT 1", (sid,)
-        ).fetchone()
-        if has_refs:
-            continue
-        has_refs = conn.execute(
-            "SELECT 1 FROM artifacts WHERE session_id = ? AND status != 'deleted' LIMIT 1", (sid,)
-        ).fetchone()
-        if has_refs:
-            continue
-        has_refs = conn.execute(
-            "SELECT 1 FROM issues WHERE session_id = ? AND status = 'open' LIMIT 1", (sid,)
-        ).fetchone()
-        if has_refs:
-            continue
-        to_delete.append(sid)
-    if not to_delete:
-        return 0
-    if dry_run:
-        print(f"  [dry-run] Would delete {len(to_delete)} archived sessions")
-        return len(to_delete)
-    # CASCADE will handle children
-    placeholders = ",".join("?" * len(to_delete))
-    conn.execute(f"DELETE FROM sessions WHERE id IN ({placeholders})", to_delete)
-    conn.commit()
-    print(f"  Deleted {len(to_delete)} archived sessions")
-    return len(to_delete)
-
-
-# ------------------------------------------------------------------
-# Metrics / retention_runs
-# ------------------------------------------------------------------
-def _ensure_retention_runs(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS retention_runs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            started_at TEXT NOT NULL DEFAULT (datetime('now')),
-            ended_at TEXT,
-            db_size_mb REAL,
-            wal_size_mb REAL,
-            op_log_rows_before INTEGER,
-            op_log_rows_deleted INTEGER,
-            journal_bytes_before INTEGER,
-            journal_rotations INTEGER,
-            backups_deleted INTEGER,
-            sessions_purged INTEGER,
-            status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'failed')),
-            error TEXT
-        )"""
-    )
-    conn.commit()
-
-
-def _record_run(
-    conn: sqlite3.Connection,
-    run_id: int,
-    started_at: str,
-    metrics: dict,
-    status: str,
-    error: Optional[str],
-) -> None:
-    conn.execute(
-        """UPDATE retention_runs SET
-            ended_at = datetime('now'),
-            db_size_mb = ?,
-            wal_size_mb = ?,
-            op_log_rows_before = ?,
-            op_log_rows_deleted = ?,
-            journal_bytes_before = ?,
-            journal_rotations = ?,
-            backups_deleted = ?,
-            sessions_purged = ?,
-            status = ?,
-            error = ?
-        WHERE id = ?""",
-        (
-            metrics.get("db_size_mb"),
-            metrics.get("wal_size_mb"),
-            metrics.get("op_log_rows_before"),
-            metrics.get("op_log_rows_deleted"),
-            metrics.get("journal_bytes_before"),
-            metrics.get("journal_rotations"),
-            metrics.get("backups_deleted"),
-            metrics.get("sessions_purged"),
-            status,
-            error,
-            run_id,
-        ),
-    )
-    conn.commit()
-
-
-# ------------------------------------------------------------------
-# Issue record
-# ------------------------------------------------------------------
-def _record_issue(conn: sqlite3.Connection, run_id: int, summary: dict, status: str) -> None:
-    title = f"RETENTION-{run_id}"
-    symptom = json.dumps(summary, ensure_ascii=False, indent=2)
-    fix = "Garbage collection completed"
-    issue_status = "fixed" if status == "success" else "open"
-    conn.execute(
-        "INSERT OR REPLACE INTO issues (session_id, turn_id, title, symptom, root_cause, fix, status)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("retention", 0, title, symptom, None, fix, issue_status),
-    )
-    conn.commit()
-
-
-# ------------------------------------------------------------------
-# Main
-# ------------------------------------------------------------------
-def run(dry_run: bool = True, apply: bool = False) -> bool:
-    if apply:
-        dry_run = False
-    started_at = datetime.utcnow().isoformat()
-    print(f"[{started_at}] retention.py {'--dry-run' if dry_run else '--apply'}")
-    cfg = _merge_config(_load_config())
-    conn = _get_conn()
-    run_id = None
-    metrics = {}
-    try:
-        # 1. quick_check
-        if not _integrity_check(conn):
-            print("ERROR: PRAGMA quick_check failed. Aborting.", file=sys.stderr)
-            return False
-        # Ensure retention dummy session exists for FK (issues table)
-        conn.execute("INSERT OR IGNORE INTO sessions (id, status) VALUES ('retention', 'active')")
-        conn.commit()
-        # Ensure metrics table exists
-        _ensure_retention_runs(conn)
-        # Insert running record
-        cur = conn.execute(
-            "INSERT INTO retention_runs (started_at, status) VALUES (?, 'running')",
-            (started_at,),
-        )
-        run_id = cur.lastrowid
-        # Gather pre-metrics
-        db_size = os.path.getsize(DB_PATH) / (1024 * 1024)
-        wal_path = DB_PATH + "-wal"
-        wal_size = os.path.getsize(wal_path) / (1024 * 1024) if os.path.exists(wal_path) else 0.0
-        journal_bytes = os.path.getsize(JOURNAL_PATH) if os.path.exists(JOURNAL_PATH) else 0
-        op_log_before = conn.execute("SELECT COUNT(*) FROM op_log").fetchone()[0]
-        metrics = {
-            "db_size_mb": round(db_size, 2),
-            "wal_size_mb": round(wal_size, 2),
-            "op_log_rows_before": op_log_before,
-            "journal_bytes_before": journal_bytes,
-        }
-        # 2. Backup
-        print("Step 1: Backup...")
-        _backup_now()
-        # 3. Prune backups
-        print("Step 2: Prune backups...")
-        metrics["backups_deleted"] = _prune_backups(cfg, dry_run)
-        # 4. Rotate journal
-        print("Step 3: Rotate journal...")
-        metrics["journal_rotations"] = _rotate_journal(conn, cfg, dry_run)
-        # 5. Prune op_log
-        print("Step 4: Prune op_log...")
-        metrics["op_log_rows_deleted"] = _prune_op_log(conn, cfg, dry_run)
-        # 6. Purge archived sessions
-        print("Step 5: Purge archived sessions...")
-        metrics["sessions_purged"] = _purge_archived_sessions(conn, cfg, dry_run)
-        # 7. Reclaim pages
-        if not dry_run:
-            conn.execute("PRAGMA incremental_vacuum;")
-            conn.commit()
-        # 8. Final integrity check
-        if not _integrity_check(conn):
-            _record_run(conn, run_id, started_at, metrics, "failed", "Integrity check failed after GC")
-            _record_issue(conn, run_id, metrics, "failed")
-            print("ERROR: Integrity check failed after GC", file=sys.stderr)
-            return False
-        # Record success
-        _record_run(conn, run_id, started_at, metrics, "success", None)
-        _record_issue(conn, run_id, metrics, "success")
-        print(f"Done. Run ID: {run_id}")
-        print(f"Metrics: {json.dumps(metrics, indent=2)}")
-        return True
-    except Exception as e:
-        print(f"ERROR: {e}", file=sys.stderr)
+    m = _JOURNAL_TURN_RE.search(line)
+    if m:
         try:
-            if run_id is not None:
-                _record_run(conn, run_id, started_at, metrics, "failed", str(e))
-                _record_issue(conn, run_id, metrics, "failed")
-        except Exception:
+            return int(m.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def rotate_journal(
+    conn: sqlite3.Connection, cfg: dict, apply: bool
+) -> tuple[int, int]:
+    """
+    Returns (journal_bytes_before, rotations_performed).
+    Only entries whose turn_id <= max materialized turn_id are eligible to be
+    rotated out; unmaterialized tail entries are preserved in journal.log.
+    """
+    journal_path = cfg["journal_path"]
+    max_bytes = int(cfg["journal_max_bytes"])
+    keep = int(cfg["journal_keep_rotations"])
+
+    before = file_size(journal_path)
+    if before == 0:
+        log("journal.log absent or empty; nothing to rotate")
+        return 0, 0
+
+    if before <= max_bytes:
+        log(f"journal.log {mb(before)} MB <= threshold {mb(max_bytes)} MB; skip")
+        return before, 0
+
+    materialized = materialized_turn_id(conn)
+
+    # Partition lines into "rotate" (materialized/no-id) and "keep" (tail).
+    rotate_lines: list[str] = []
+    keep_lines: list[str] = []
+    started_keeping = False
+    try:
+        with open(journal_path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if started_keeping:
+                    keep_lines.append(line)
+                    continue
+                tid = _entry_turn_id(line)
+                if materialized is not None and tid is not None and tid > materialized:
+                    # First unmaterialized entry; everything from here stays.
+                    started_keeping = True
+                    keep_lines.append(line)
+                else:
+                    rotate_lines.append(line)
+    except OSError as exc:
+        log(f"could not read journal {journal_path}: {exc}")
+        return before, 0
+
+    if not rotate_lines:
+        log("journal: no materialized entries eligible to rotate")
+        return before, 0
+
+    ts = utcnow().strftime("%Y%m%d_%H%M%S")
+    rotated_name = f"{journal_path}.{ts}.log"
+    gz_name = rotated_name + ".gz"
+
+    if not apply:
+        log(
+            f"[dry-run] would rotate {len(rotate_lines)} journal entries "
+            f"-> {os.path.basename(gz_name)}, keep {len(keep_lines)} tail entries"
+        )
+        return before, 1
+
+    # Write rotated content, then gzip it.
+    with open(rotated_name, "w", encoding="utf-8") as out:
+        out.writelines(rotate_lines)
+        out.flush()
+        os.fsync(out.fileno())
+
+    with open(rotated_name, "rb") as f_in, gzip.open(gz_name, "wb") as f_out:
+        shutil.copyfileobj(f_in, f_out)
+    try:
+        os.remove(rotated_name)
+    except OSError:
+        pass
+    log(f"journal: wrote {os.path.basename(gz_name)} ({len(rotate_lines)} entries)")
+
+    # Rewrite journal.log with only the preserved tail (atomic replace).
+    tmp = journal_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as out:
+        out.writelines(keep_lines)
+        out.flush()
+        os.fsync(out.fileno())
+    os.replace(tmp, journal_path)
+    # fsync the directory so the rename is durable
+    try:
+        dfd = os.open(os.path.dirname(journal_path) or ".", os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
+    except OSError:
+        pass
+    log(f"journal: truncated live log to {len(keep_lines)} tail entries")
+
+    prune_journal_rotations(journal_path, keep, apply)
+    return before, 1
+
+
+def prune_journal_rotations(journal_path: str, keep: int, apply: bool) -> None:
+    d = os.path.dirname(journal_path) or "."
+    base = os.path.basename(journal_path)
+    rot_re = re.compile(re.escape(base) + r"\.(\d{8}_\d{6})\.log\.gz$")
+    rotations = []
+    try:
+        for name in os.listdir(d):
+            m = rot_re.match(name)
+            if m:
+                rotations.append((os.path.join(d, name), m.group(1)))
+    except OSError:
+        return
+    rotations.sort(key=lambda t: t[1], reverse=True)  # newest first
+    for path, _ in rotations[keep:]:
+        if not apply:
+            log(f"[dry-run] would delete old rotation {os.path.basename(path)}")
+            continue
+        try:
+            os.remove(path)
+            log(f"deleted old journal rotation {os.path.basename(path)}")
+        except OSError as exc:
+            log(f"could not delete rotation {path}: {exc}")
+
+
+# --------------------------------------------------------------------------- #
+# 4. Archived/compacted session purge (FK-aware)
+# --------------------------------------------------------------------------- #
+
+# child tables that may reference sessions.session_id; only those present are checked
+SESSION_REFERENCERS = ("decisions", "artifacts", "issues")
+
+
+def purge_sessions(conn: sqlite3.Connection, cfg: dict, apply: bool) -> int:
+    if not table_exists(conn, "sessions"):
+        log("sessions table absent; skipping purge")
+        return 0
+
+    scols = column_names(conn, "sessions")
+    if not {"session_id", "status", "ended_at"}.issubset(scols):
+        log("sessions missing required columns; skipping purge")
+        return 0
+
+    days = int(cfg["session_purge_days"])
+
+    candidates = [
+        r[0]
+        for r in conn.execute(
+            """
+            SELECT session_id FROM sessions
+            WHERE status IN ('archived','compacted')
+              AND ended_at IS NOT NULL
+              AND ended_at < date('now', ?);
+            """,
+            (f"-{days} days",),
+        ).fetchall()
+    ]
+    if not candidates:
+        log("no archived/compacted sessions past the purge window")
+        return 0
+
+    # Determine which referencer tables actually exist and reference session_id.
+    active_refs = []
+    for tbl in SESSION_REFERENCERS:
+        if table_exists(conn, tbl) and "session_id" in column_names(conn, tbl):
+            active_refs.append(tbl)
+
+    purgeable = []
+    skipped = 0
+    for sid in candidates:
+        referenced = False
+        for tbl in active_refs:
+            row = conn.execute(
+                f"SELECT 1 FROM {tbl} WHERE session_id = ? LIMIT 1;", (sid,)
+            ).fetchone()
+            if row:
+                referenced = True
+                break
+        if referenced:
+            skipped += 1
+        else:
+            purgeable.append(sid)
+
+    log(
+        f"sessions purge: {len(candidates)} candidates, "
+        f"{len(purgeable)} purgeable, {skipped} skipped (live references)"
+    )
+
+    if not purgeable:
+        return 0
+
+    if not apply:
+        log(f"[dry-run] would purge {len(purgeable)} sessions")
+        return len(purgeable)
+
+    deleted = 0
+    batch = 500
+    for i in range(0, len(purgeable), batch):
+        chunk = purgeable[i : i + batch]
+        placeholders = ",".join("?" * len(chunk))
+        with conn:
+            cur = conn.execute(
+                f"DELETE FROM sessions WHERE session_id IN ({placeholders});", chunk
+            )
+            deleted += cur.rowcount if cur.rowcount != -1 else len(chunk)
+    log(f"sessions purge: deleted {deleted}")
+    return deleted
+
+
+# --------------------------------------------------------------------------- #
+# Metrics + issue records
+# --------------------------------------------------------------------------- #
+
+def insert_run(conn: sqlite3.Connection, metrics: dict, apply: bool) -> int | None:
+    if not apply:
+        log("[dry-run] would insert retention_runs row")
+        return None
+    ensure_retention_runs(conn)
+    with conn:
+        cur = conn.execute(
+            """
+            INSERT INTO retention_runs (
+                started_at, ended_at, db_size_mb, wal_size_mb,
+                op_log_rows_before, op_log_rows_deleted,
+                journal_bytes_before, journal_rotations,
+                backups_deleted, sessions_purged, status, error
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?);
+            """,
+            (
+                metrics["started_at"],
+                metrics["ended_at"],
+                metrics["db_size_mb"],
+                metrics["wal_size_mb"],
+                metrics["op_log_rows_before"],
+                metrics["op_log_rows_deleted"],
+                metrics["journal_bytes_before"],
+                metrics["journal_rotations"],
+                metrics["backups_deleted"],
+                metrics["sessions_purged"],
+                metrics["status"],
+                metrics["error"],
+            ),
+        )
+        return cur.lastrowid
+
+
+def insert_issue(
+    conn: sqlite3.Connection, run_id: int | None, metrics: dict, apply: bool
+) -> None:
+    if not apply:
+        log("[dry-run] would insert issues summary row")
+        return
+    if not table_exists(conn, "issues"):
+        log("issues table absent; skipping issue record")
+        return
+
+    icols = column_names(conn, "issues")
+    rid = run_id if run_id is not None else 0
+    status = "fixed" if metrics["status"] == "ok" else "open"
+    fix_json = json.dumps(
+        {
+            "run_id": rid,
+            "op_log_rows_deleted": metrics["op_log_rows_deleted"],
+            "journal_rotations": metrics["journal_rotations"],
+            "backups_deleted": metrics["backups_deleted"],
+            "sessions_purged": metrics["sessions_purged"],
+            "db_size_mb": metrics["db_size_mb"],
+            "status": metrics["status"],
+        },
+        separators=(",", ":"),
+    )
+
+    payload = {
+        "session_id": "retention",
+        "turn_id": 0,
+        "title": f"RETENTION-{rid}",
+        "symptom": "GC summary",
+        "fix": fix_json,
+        "status": status,
+    }
+    usable = {k: v for k, v in payload.items() if k in icols}
+    cols = ",".join(usable.keys())
+    placeholders = ",".join("?" * len(usable))
+    with conn:
+        conn.execute(
+            f"INSERT INTO issues ({cols}) VALUES ({placeholders});",
+            list(usable.values()),
+        )
+    log(f"issues: inserted RETENTION-{rid} ({status})")
+
+
+# --------------------------------------------------------------------------- #
+# Main orchestration
+# --------------------------------------------------------------------------- #
+
+def run(cfg: dict, apply: bool) -> int:
+    db_path = cfg["db_path"]
+    started = utcnow()
+
+    metrics = {
+        "started_at": iso(started),
+        "ended_at": None,
+        "db_size_mb": mb(file_size(db_path)),
+        "wal_size_mb": mb(file_size(db_path + "-wal")),
+        "op_log_rows_before": 0,
+        "op_log_rows_deleted": 0,
+        "journal_bytes_before": 0,
+        "journal_rotations": 0,
+        "backups_deleted": 0,
+        "sessions_purged": 0,
+        "status": "ok",
+        "error": None,
+    }
+
+    if not os.path.exists(db_path):
+        log(f"FATAL: database not found at {db_path}")
+        return 2
+
+    conn = connect(db_path)
+    try:
+        # (7) integrity gate
+        if not quick_check(conn):
+            log("FATAL: quick_check not ok; aborting before any mutation")
+            metrics["status"] = "aborted"
+            metrics["error"] = "quick_check_failed"
+            metrics["ended_at"] = iso(utcnow())
+            # record the aborted run if we can
+            try:
+                rid = insert_run(conn, metrics, apply)
+                insert_issue(conn, rid, metrics, apply)
+            except sqlite3.Error:
+                pass
+            return 3
+        log("quick_check ok")
+
+        metrics["op_log_rows_before"] = op_log_counts(conn)
+
+        # (1) backup + verify, then GFS rotation
+        created = make_backup(conn, cfg, apply)
+        metrics["backups_deleted"] = rotate_backups(cfg, apply, created)
+
+        # (2) op_log prune
+        metrics["op_log_rows_deleted"] = prune_op_log(conn, cfg, apply)
+
+        # (3) journal rotation
+        jbefore, jrot = rotate_journal(conn, cfg, apply)
+        metrics["journal_bytes_before"] = jbefore
+        metrics["journal_rotations"] = jrot
+
+        # (4) session purge
+        metrics["sessions_purged"] = purge_sessions(conn, cfg, apply)
+
+        # refresh size metrics after work
+        metrics["db_size_mb"] = mb(file_size(db_path))
+        metrics["wal_size_mb"] = mb(file_size(db_path + "-wal"))
+        metrics["ended_at"] = iso(utcnow())
+
+        rid = insert_run(conn, metrics, apply)
+        insert_issue(conn, rid, metrics, apply)
+
+        log(
+            "DONE "
+            + json.dumps(
+                {
+                    "apply": apply,
+                    "backups_deleted": metrics["backups_deleted"],
+                    "op_log_rows_deleted": metrics["op_log_rows_deleted"],
+                    "journal_rotations": metrics["journal_rotations"],
+                    "sessions_purged": metrics["sessions_purged"],
+                    "status": metrics["status"],
+                }
+            )
+        )
+        return 0
+
+    except Exception as exc:  # noqa: BLE001 - record then re-surface as exit code
+        metrics["status"] = "error"
+        metrics["error"] = f"{type(exc).__name__}: {exc}"
+        metrics["ended_at"] = iso(utcnow())
+        log("ERROR: " + metrics["error"])
+        log(traceback.format_exc())
+        try:
+            rid = insert_run(conn, metrics, apply)
+            insert_issue(conn, rid, metrics, apply)
+        except sqlite3.Error:
             pass
-        return False
+        return 1
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="Retention / GC toolkit for the Hermes SQLite memory store.",
+    )
+    p.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG_PATH,
+        help=f"path to JSON config (default: {DEFAULT_CONFIG_PATH})",
+    )
+    p.add_argument("--db", help="override database path")
+    p.add_argument("--backup-dir", help="override backup directory")
+    p.add_argument("--journal", help="override journal.log path")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument(
+        "--apply",
+        action="store_true",
+        help="actually perform mutations (default is dry-run)",
+    )
+    g.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="explicit dry-run (this is the default behaviour)",
+    )
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    cfg = load_config(args.config)
+    if args.db:
+        cfg["db_path"] = args.db
+    if args.backup_dir:
+        cfg["backup_dir"] = args.backup_dir
+    if args.journal:
+        cfg["journal_path"] = args.journal
+
+    apply = bool(args.apply)  # dry-run is the default
+    log(f"mode = {'APPLY' if apply else 'DRY-RUN'}")
+    return run(cfg, apply)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Unified retention / garbage collector for ENI memory DB")
-    parser.add_argument("--dry-run", action="store_true", default=True, help="Show plan without mutating (default)")
-    parser.add_argument("--apply", action="store_true", default=False, help="Actually perform mutations")
-    args = parser.parse_args()
-    ok = run(dry_run=args.dry_run, apply=args.apply)
-    sys.exit(0 if ok else 1)
+    sys.exit(main())
