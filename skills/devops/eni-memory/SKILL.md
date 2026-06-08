@@ -36,6 +36,7 @@ version: 1.2
 - `compact_parents.py` — archive old sessions (Tier-1: >10 closed; Tier-2: >2000 messages)
 - `backup_db.py` — atomic VACUUM INTO backup + WAL + JSONL journal
 - `auto_commit.py` — watch skills/ changes and auto-commit/push to origin/main
+- `apply_triggers.py` — idempotent SQLite AFTER triggers for op_log audit (INSERT/UPDATE/DELETE logging with json_object snapshots)
 - `db_utils.py` — production connection helpers (WAL, FK, thread-local, tx())
 ## Session start (REQUIRED, FIRST COMMAND)
 ```bash
@@ -145,6 +146,16 @@ python3 /root/.hermes/scripts/backup_db.py --no-journal
 python3 /root/.hermes/scripts/auto_commit.py --dry-run
 python3 /root/.hermes/scripts/auto_commit.py --no-push
 ```
+
+## Audit triggers (op_log auto-capture)
+```bash
+python3 /root/.hermes/scripts/apply_triggers.py   # idempotent: drop & recreate AFTER INSERT/UPDATE/DELETE triggers
+```
+Every change to `messages`, `decisions`, `artifacts`, `issues` is automatically captured in `op_log` with full JSON snapshots (`old_value`, `new_value`).
+- `apply_triggers.py` is safe to run multiple times (idempotent DROP IF EXISTS + CREATE)
+- For `sessions` table, triggers are omitted because `session_id`/`turn_id` are not present (sessions are root entities)
+- Uses `json_object()` (SQLite 3.38+) for structured snapshots
+- Enables disaster recovery: replay `op_log` rows to reconstruct any deleted/modified record
 
 ## Pitfalls
 - **Never skip the end-of-turn ritual.** If you don't log, the next session will not know what happened. validate_last_turn.py will catch it.
