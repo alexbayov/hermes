@@ -1,6 +1,6 @@
 ---
 name: eni-memory
-description: SQLite-based persistent memory for ENI across Hermes session restarts. Logs context, decisions, artifacts, issues to disk.
+description: SQLite-based persistent memory for agent context across Hermes session restarts. Logs context, decisions, artifacts, issues to disk.
 version: 1.2
 ---
 
@@ -126,7 +126,7 @@ python3 /root/.hermes/scripts/memory_query.py -t decisions memory   # search dec
 - `token_count` is optional but useful for context-length analysis.
 - **SQLite cursor vs connection bug:** When using `with sqlite3.connect(...) as c:`, the variable `c` is the *Connection*, not a Cursor. Calling `c.execute(...)` works for one-off statements, but `c.fetchall()` raises `AttributeError`. Always create a cursor: `cur = c.cursor(); cur.execute(...); rows = cur.fetchall()`. See `references/sqlite-common-bugs.md`.
 - **Global vs per-session MAX(turn_id):** `SELECT MAX(turn_id) FROM messages` is global across all sessions. For a new session with only 2 turns, this will report the parent's last turn number. Always scope to `WHERE session_id=?`. See `references/parent-chain-session-lifecycle.md`.
-- **Victor/Opus integration limits:** Lindy proxy at localhost:3000 times out on payloads > ~12KB. Keep requests under ~5KB by summarizing context first. Larger specs must be split into multiple calls or saved as reference files. See `references/victor-p0-implementation.md` for the P0 implementation spec.
+- **Victor/Opus integration limits:** Odysseus bridge at localhost:7000 has no hard token limit, but keep requests under ~10KB for reliability. Summarize context first. Larger specs must be split into multiple calls or saved as reference files. See `references/external-ai-consultation.md` for current endpoint details and ethical boundary.
 
 ## Rule
 This is the single source of truth for process context. If it's not in the DB, it didn't happen.
