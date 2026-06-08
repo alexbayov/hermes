@@ -29,3 +29,27 @@ __pycache__/
 
 # OS
 .DS_Store
+
+# Runtime / local state (not committed)
+channel_directory.json
+kanban.db
+kanban.db.init.lock
+
+# Backup commit restructuring (parallel to profile/skills/)
+skills/apple/
+skills/autonomous-ai-agents/
+skills/creative/
+skills/data-science/
+skills/devops/kanban-orchestrator/
+skills/devops/kanban-worker/
+skills/dogfood/
+skills/email/
+skills/media/
+skills/mlops/
+skills/note-taking/
+skills/productivity/
+skills/red-teaming/
+skills/smart-home/
+skills/social-media/
+skills/software-development/
+skills/yuanbao/
