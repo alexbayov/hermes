@@ -75,3 +75,90 @@ cur.execute("PRAGMA table_info(messages)")
 for col in cur.fetchall():
     print(f"  {col[1]} ({col[2]})")  # name, type
 ```
+
+---
+
+## 6. VACUUM INTO Cannot Run Inside a Transaction
+
+### Symptom
+```python
+with tx(write=True) as conn:      # db_utils.tx() wraps BEGIN IMMEDIATE
+    conn.execute("VACUUM INTO '/tmp/backup.db';")
+# sqlite3.OperationalError: cannot VACUUM from within a transaction
+```
+
+### Root cause
+`VACUUM INTO` is a special operation that rewrites the entire database file. SQLite forbids it inside any explicit transaction (`BEGIN`, `BEGIN IMMEDIATE`, or `SAVEPOINT`).
+
+### Fix
+Create a **fresh, separate connection** that is not inside any transaction:
+```python
+import sqlite3
+conn = sqlite3.connect(DB_PATH)
+conn.execute("VACUUM INTO '/tmp/backup.db';")
+conn.close()
+```
+
+Do not use `get_conn()` (which may be inside `tx()`) for `VACUUM INTO`. This also applies to `PRAGMA wal_checkpoint(TRUNCATE)` — while it usually works inside a transaction, it is cleaner to run it on a fresh connection.
+
+---
+
+## 7. Thread-Local Connection Staleness After `close()`
+
+### Symptom
+```python
+conn = get_conn()   # thread-local, cached
+conn.close()
+# ... later in the same thread ...
+conn = get_conn()   # returns the CLOSED connection
+conn.execute("SELECT 1")  # sqlite3.ProgrammingError: Cannot operate on a closed database
+```
+
+### Root cause
+`db_utils._local` caches the connection object per thread. Calling `.close()` does not clear the thread-local cache. Any subsequent `get_conn()` returns the stale handle.
+
+### Fix
+Add a liveness probe inside `get_conn()` and re-create if the connection is dead:
+```python
+def get_conn():
+    if hasattr(_local, "conn"):
+        try:
+            _local.conn.execute("SELECT 1")
+            return _local.conn
+        except (sqlite3.ProgrammingError, sqlite3.OperationalError):
+            del _local.conn
+    _local.conn = _connect()
+    return _local.conn
+```
+
+---
+
+## 8. SQLite RETURNING Clause Requires 3.35+
+
+### Symptom
+```python
+row = conn.execute(
+    "INSERT INTO compaction_runs (...) VALUES (...) RETURNING id"
+).fetchone()["id"]
+# sqlite3.OperationalError: near "RETURNING": syntax error
+```
+
+### Root cause
+The `RETURNING` clause was added in SQLite 3.35.0 (released March 2021). Python 3.11 bundles SQLite 3.39+, so this is usually safe on modern systems. However, older Python builds, Alpine Linux musl builds, or custom SQLite compiles may ship an older version.
+
+### Fix
+Use the traditional `lastrowid` approach for maximum compatibility, or guard with a version check:
+```python
+# Universal fallback
+import sqlite3
+version = sqlite3.sqlite_version_info
+if version >= (3, 35, 0):
+    row = conn.execute("INSERT INTO t (...) VALUES (...) RETURNING id").fetchone()
+    new_id = row[0]
+else:
+    cur = conn.execute("INSERT INTO t (...) VALUES (...)")
+    new_id = cur.lastrowid
+```
+
+### Rule
+When writing scripts that may run on diverse environments (containers, older distros, minimal Python builds), prefer `lastrowid` over `RETURNING`. If you use `RETURNING`, document the minimum SQLite version in the script header.

@@ -1,11 +1,32 @@
 """SQLite production connection helpers with WAL, FK, and thread-safe transactions."""
 import sqlite3
 import threading
+import time
+import functools
 from contextlib import contextmanager
 
 DB_PATH = "/root/.hermes/data/eni_memory.db"
 
 _local = threading.local()
+
+
+def retry_on_lock(max_retries=3, delays=(0.1, 0.2, 0.4)):
+    """Decorator: retry sqlite3 OperationalError containing 'locked' or 'busy' with exponential backoff."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except sqlite3.OperationalError as e:
+                    error_msg = str(e).lower()
+                    if 'locked' in error_msg or 'busy' in error_msg:
+                        if attempt < max_retries:
+                            time.sleep(delays[attempt])
+                            continue
+                    raise
+        return wrapper
+    return decorator
 
 
 def _connect() -> sqlite3.Connection:
@@ -54,17 +75,20 @@ def tx(write: bool = False):
         raise
 
 
+@retry_on_lock()
 def checkpoint():
     conn = get_conn()
     conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
 
 
+@retry_on_lock()
 def integrity_check() -> bool:
     conn = get_conn()
     row = conn.execute("PRAGMA integrity_check;").fetchone()
     return row[0] == "ok"
 
 
+@retry_on_lock()
 def backup(dst_path: str):
     src = sqlite3.connect(DB_PATH)
     dst = sqlite3.connect(dst_path)
