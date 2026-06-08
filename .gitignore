@@ -88,3 +88,8 @@ skills/research/blogwatcher/
 skills/research/llm-wiki/
 skills/research/polymarket/
 skills/research/research-paper-writing/
+
+# Runtime locks and temp files
+auth.lock
+*.lock
+memories/

@@ -1,0 +1,2 @@
+Viktor refused this atomic question - too many parallel threads detected.
+Need to ask via different session or rephrase.
