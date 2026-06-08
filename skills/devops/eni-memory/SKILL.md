@@ -26,8 +26,9 @@ version: 1.2
 
 ## Scripts
 - `init_db.py` — initialize schema (run once)
-- `migrate_schema.py` — idempotent schema migrations with backup-first safety (v4: UNIQUE indexes for decisions/artifacts/issues)
+- `migrate_schema.py` — idempotent schema migrations with backup-first safety (v6: FTS5 + indexes for decisions/artifacts/issues, retention_runs)
 - `persist.py` — unified turn logging with decisions/artifacts/issues (journal.log dual-write with full dict payloads)
+- `semantic_search.py` — FTS5 + sqlite-vec hybrid search (BM25 + cosine similarity, RRF fusion, resumable backfill)
 - `validate_last_turn.py` — startup integrity check (gaps, missing assistant turn, active session)
 - `validate_and_repair.py` — backfill missing DB rows from journal.log idempotently (reverse read, dedup, REPAIR issues)
 - `resume_context.py` — restore context from DB, traverses parent sessions with token budget
@@ -138,7 +139,7 @@ python3 /root/.hermes/scripts/validate_and_repair.py --session-id <SESSION_ID>  
 
 ## Schema migrations
 ```bash
-python3 /root/.hermes/scripts/migrate_schema.py --target 5   # apply up to v5 (retention_runs + indexes)
+python3 /root/.hermes/scripts/migrate_schema.py --target 6   # apply up to v6 (FTS5 + retention_runs + indexes)
 python3 /root/.hermes/scripts/migrate_schema.py --no-backup  # skip backup (dangerous)
 ```
 
@@ -202,7 +203,7 @@ PRAGMA optimize;
 ANALYZE;
 ```
 
-Future: `FTS5` (keyword search) and/or `sqlite-vec` (semantic embeddings) for relevance-based recall instead of recency-only parent_chain traversal. This is the single biggest capability gap per Viktor's review.
+Future: `FTS5` (keyword search) and/or `sqlite-vec` (semantic embeddings) for relevance-based recall instead of recency-only parent_chain traversal. This is the single biggest capability gap per Viktor's review. **Implemented:** `semantic_search.py` (FTS5 BM25 + sqlite-vec cosine similarity + RRF hybrid fusion). Requires `sqlite-vec` loadable extension.
 - **Never skip the end-of-turn ritual.** If you don't log, the next session will not know what happened. validate_last_turn.py will catch it.
 - Content should be **concise summaries** (200-500 chars), not full tool output. Use `--tool-result` for full JSON if needed.
 - If `turn_id` conflicts, ON CONFLICT will update the existing row. This is safe.
@@ -257,5 +258,6 @@ git push origin main
 - Full P0 implementation: `/root/.hermes/plans/victor-p0-implementation.md` (30KB)
 - Full v2 architecture: `/root/.hermes/plans/eni-memory-v2-spec.md` (61KB)
 - P1 plan: `/root/.hermes/plans/p1-implementation.md` — 7-phase implementation (WAL, migrations, compaction, undo, backup, auto-commit, token counting)
+- `references/semantic-search-viktor.md` — Viktor's full response: FTS5 external-content + triggers, sqlite-vec vec0 schema, serialize_f32, batch backfill, RRF hybrid fusion, gotchas (2026-06-08, direct endpoint, no ENI context)
 - `references/viktor-architecture-review-2026-06-08.md` — Viktor's architecture review: backup bug, durability pragmas, unbounded growth, relevance-based recall gap, bidirectional sync anti-pattern, crash-recovery fault injection (2026-06-08, direct endpoint, no ENI context)
 - `references/retention-roadmap.md` — Viktor's design sketch for `retention.py`: GFS backup rotation, op_log/journal pruning, archived session purge, metrics, safety rails, implementation checklist

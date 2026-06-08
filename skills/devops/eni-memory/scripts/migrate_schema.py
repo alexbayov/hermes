@@ -71,6 +71,27 @@ MIGRATIONS = {
         CREATE INDEX IF NOT EXISTS idx_artifacts_session_status ON artifacts(session_id, status);
         CREATE INDEX IF NOT EXISTS idx_oplog_created ON op_log(created_at);
     """,
+    6: """
+        CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+            content,
+            content='messages',
+            content_rowid='id',
+            tokenize='unicode61 remove_diacritics 2'
+        );
+        CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+            INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content)
+            VALUES ('delete', old.id, old.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content)
+            VALUES ('delete', old.id, old.content);
+            INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+        END;
+        INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');
+    """,
 }
 
 
@@ -88,17 +109,28 @@ def _backup_first():
 
 def _run_migration(version: int, sql: str):
     conn = get_conn()
-    for stmt in sql.strip().split(";"):
-        stmt = stmt.strip()
-        if not stmt or stmt.startswith("--"):
-            continue
+    # For multi-statement blocks (triggers, virtual tables), use executescript.
+    # Otherwise split by semicolon for granular error handling.
+    if "CREATE TRIGGER" in sql or "CREATE VIRTUAL TABLE" in sql:
         try:
-            conn.execute(stmt)
+            conn.executescript(sql)
         except sqlite3.OperationalError as e:
-            if "duplicate column name" in str(e) or "already exists" in str(e):
-                print(f"  [skip] {stmt[:60]}... — already applied")
+            if "already exists" in str(e) or "duplicate column name" in str(e):
+                print(f"  [skip] v{version} — already applied ({e})")
             else:
                 raise
+    else:
+        for stmt in sql.strip().split(";"):
+            stmt = stmt.strip()
+            if not stmt or stmt.startswith("--"):
+                continue
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e) or "already exists" in str(e):
+                    print(f"  [skip] {stmt[:60]}... — already applied")
+                else:
+                    raise
     conn.execute(
         "INSERT OR REPLACE INTO schema_version (id, version, applied_at) VALUES (1, ?, datetime('now'))",
         (version,),
