@@ -4,7 +4,7 @@ import os
 import sys
 import argparse
 from datetime import datetime
-from db_utils import tx, get_conn, DB_PATH
+from db_utils import tx, get_conn, DB_PATH, retry_on_lock
 
 JOURNAL_PATH = "/root/.hermes/data/journal.log"
 
@@ -39,56 +39,60 @@ def persist(
     fix: str = None,
     issue_status: str = None,
 ):
-    with tx(write=True) as conn:
-        # Insert message
-        conn.execute(
-            """
-            INSERT INTO messages (session_id, turn_id, role, content, token_count, tool_name, tool_result)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(session_id, turn_id, role) DO UPDATE SET
-                content = excluded.content,
-                token_count = excluded.token_count,
-                tool_name = excluded.tool_name,
-                tool_result = excluded.tool_result
-            """,
-            (session, turn, role, content, token_count, tool_name, tool_result),
-        )
-
-        # Increment message_count on session
-        conn.execute(
-            "UPDATE sessions SET message_count = message_count + 1 WHERE id = ?",
-            (session,),
-        )
-
-        # Insert decision if present
-        if decision_title:
+    @retry_on_lock()
+    def _insert():
+        with tx(write=True) as conn:
+            # Insert message
             conn.execute(
                 """
-                INSERT INTO decisions (session_id, turn_id, title, choice, rationale, rejected)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (session, turn, decision_title, decision, rationale, rejected),
-            )
-
-        # Insert artifact if present
-        if artifact_name:
-            conn.execute(
-                """
-                INSERT INTO artifacts (session_id, turn_id, name, path, type, status, description)
+                INSERT INTO messages (session_id, turn_id, role, content, token_count, tool_name, tool_result)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id, turn_id, role) DO UPDATE SET
+                    content = excluded.content,
+                    token_count = excluded.token_count,
+                    tool_name = excluded.tool_name,
+                    tool_result = excluded.tool_result
                 """,
-                (session, turn, artifact_name, artifact_path, artifact_type, artifact_status, artifact_desc),
+                (session, turn, role, content, token_count, tool_name, tool_result),
             )
 
-        # Insert issue if present
-        if issue_title:
+            # Increment message_count on session
             conn.execute(
-                """
-                INSERT INTO issues (session_id, turn_id, title, symptom, root_cause, fix, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (session, turn, issue_title, symptom, root_cause, fix, issue_status),
+                "UPDATE sessions SET message_count = message_count + 1 WHERE id = ?",
+                (session,),
             )
+
+            # Insert decision if present
+            if decision_title:
+                conn.execute(
+                    """
+                    INSERT INTO decisions (session_id, turn_id, title, choice, rationale, rejected)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (session, turn, decision_title, decision, rationale, rejected),
+                )
+
+            # Insert artifact if present
+            if artifact_name:
+                conn.execute(
+                    """
+                    INSERT INTO artifacts (session_id, turn_id, name, path, type, status, description)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (session, turn, artifact_name, artifact_path, artifact_type, artifact_status, artifact_desc),
+                )
+
+            # Insert issue if present
+            if issue_title:
+                conn.execute(
+                    """
+                    INSERT INTO issues (session_id, turn_id, title, symptom, root_cause, fix, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (session, turn, issue_title, symptom, root_cause, fix, issue_status),
+                )
+
+    _insert()
 
     # JSONL journal (always append, never update)
     journal_entry = {
@@ -109,12 +113,132 @@ def persist(
     print(f"Persisted turn {turn} for session {session}")
 
 
+@retry_on_lock()
+def repair_all():
+    """Replay entire journal.log into SQLite (deduplicated)."""
+    if not os.path.exists(JOURNAL_PATH):
+        print("INFO: journal.log not found, nothing to repair")
+        return True
+
+    with open(JOURNAL_PATH, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    entries = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+
+    if not entries:
+        print("INFO: journal.log empty, nothing to repair")
+        return True
+
+    # Deduplicate by (session_id, turn_id, role)
+    seen = set()
+    deduped = []
+    for entry in entries:
+        key = (entry.get("session_id"), entry.get("turn_id"), entry.get("role"))
+        if key not in seen and all(k is not None for k in key):
+            seen.add(key)
+            deduped.append(entry)
+
+    print(f"REPAIR: replaying {len(deduped)} unique journal entries")
+
+    with tx(write=True) as conn:
+        for entry in deduped:
+            session = entry.get("session_id")
+            turn = entry.get("turn_id")
+            role = entry.get("role")
+            content = entry.get("content")
+            if session is None or turn is None or role is None or content is None:
+                continue
+
+            conn.execute(
+                """
+                INSERT INTO messages (session_id, turn_id, role, content, token_count, tool_name, tool_result)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id, turn_id, role) DO UPDATE SET
+                    content = excluded.content,
+                    token_count = excluded.token_count,
+                    tool_name = excluded.tool_name,
+                    tool_result = excluded.tool_result
+                """,
+                (session, turn, role, content,
+                 entry.get("token_count"), entry.get("tool_name"), entry.get("tool_result")),
+            )
+
+            # Upsert decision
+            if entry.get("decision"):
+                conn.execute(
+                    """
+                    INSERT INTO decisions (session_id, turn_id, title, choice, rationale, rejected)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id, turn_id) DO UPDATE SET
+                        title = excluded.title,
+                        choice = excluded.choice,
+                        rationale = excluded.rationale,
+                        rejected = excluded.rejected
+                    """,
+                    (session, turn, entry.get("decision"), None, None, None),
+                )
+
+            # Upsert artifact
+            if entry.get("artifact"):
+                conn.execute(
+                    """
+                    INSERT INTO artifacts (session_id, turn_id, name, path, type, status, description)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id, turn_id) DO UPDATE SET
+                        name = excluded.name,
+                        path = excluded.path,
+                        type = excluded.type,
+                        status = excluded.status,
+                        description = excluded.description
+                    """,
+                    (session, turn, entry.get("artifact"), None, None, None, None),
+                )
+
+            # Upsert issue
+            if entry.get("issue"):
+                conn.execute(
+                    """
+                    INSERT INTO issues (session_id, turn_id, title, symptom, root_cause, fix, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id, turn_id) DO UPDATE SET
+                        title = excluded.title,
+                        symptom = excluded.symptom,
+                        root_cause = excluded.root_cause,
+                        fix = excluded.fix,
+                        status = excluded.status
+                    """,
+                    (session, turn, entry.get("issue"), None, None, None, None),
+                )
+
+            # Update message_count
+            conn.execute(
+                """
+                UPDATE sessions SET message_count = (
+                    SELECT COUNT(*) FROM messages WHERE session_id = ?
+                ) WHERE id = ?
+                """,
+                (session, session),
+            )
+
+    print(f"REPAIR: replayed {len(deduped)} entries")
+    return True
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--session", required=True)
-    parser.add_argument("--turn", type=int, required=True)
-    parser.add_argument("--role", required=True, choices=["user", "assistant", "tool", "system"])
-    parser.add_argument("--content", required=True)
+    parser.add_argument("--repair", action="store_true", help="Replay full journal.log into SQLite")
+    parser.add_argument("--session", required=False)
+    parser.add_argument("--turn", type=int)
+    parser.add_argument("--role", choices=["user", "assistant", "tool", "system"])
+    parser.add_argument("--content")
     parser.add_argument("--token-count", type=int)
     parser.add_argument("--tool-name")
     parser.add_argument("--tool-result")
@@ -133,26 +257,33 @@ if __name__ == "__main__":
     parser.add_argument("--fix")
     parser.add_argument("--issue-status")
     args = parser.parse_args()
-    persist(
-        session=args.session,
-        turn=args.turn,
-        role=args.role,
-        content=args.content,
-        token_count=args.token_count,
-        tool_name=args.tool_name,
-        tool_result=args.tool_result,
-        decision_title=args.decision_title,
-        decision=args.decision,
-        rationale=args.rationale,
-        rejected=args.rejected,
-        artifact_name=args.artifact_name,
-        artifact_path=args.artifact_path,
-        artifact_type=args.artifact_type,
-        artifact_status=args.artifact_status,
-        artifact_desc=args.artifact_desc,
-        issue_title=args.issue_title,
-        symptom=args.symptom,
-        root_cause=args.root_cause,
-        fix=args.fix,
-        issue_status=args.issue_status,
-    )
+
+    if args.repair:
+        ok = repair_all()
+        sys.exit(0 if ok else 1)
+    else:
+        if not args.session or args.turn is None or not args.role or not args.content:
+            parser.error("--session, --turn, --role, --content are required (unless --repair)")
+        persist(
+            session=args.session,
+            turn=args.turn,
+            role=args.role,
+            content=args.content,
+            token_count=args.token_count,
+            tool_name=args.tool_name,
+            tool_result=args.tool_result,
+            decision_title=args.decision_title,
+            decision=args.decision,
+            rationale=args.rationale,
+            rejected=args.rejected,
+            artifact_name=args.artifact_name,
+            artifact_path=args.artifact_path,
+            artifact_type=args.artifact_type,
+            artifact_status=args.artifact_status,
+            artifact_desc=args.artifact_desc,
+            issue_title=args.issue_title,
+            symptom=args.symptom,
+            root_cause=args.root_cause,
+            fix=args.fix,
+            issue_status=args.issue_status,
+        )
