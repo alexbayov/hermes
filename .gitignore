@@ -94,6 +94,14 @@ auth.lock
 *.lock
 memories/
 
+# Sensitive automation scripts (local-only, never commit)
+*abuser*
+*ambassador-abuse*
+*kiro_*
+scripts/email_generator.py
+scripts/gmail_monitor.py
+scripts/test_kiro_application.py
+
 # SQLite runtime + gateway state
 data/
 cache/
