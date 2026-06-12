@@ -1,34 +1,5 @@
 [
   {
-    "id": "b0ccdcbf-f058-4c83-984c-79d1a0135736",
-    "name": "Claude Sonnet 4",
-    "provider": "openrouter",
-    "model": "anthropic/claude-sonnet-4-20250514",
-    "baseUrl": "",
-    "createdAt": 1779995078420
-  },
-  {
-    "id": "03bf8e09-b3ab-48b0-9663-3300dff9a024",
-    "name": "Claude Sonnet 4",
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514",
-    "baseUrl": "",
-    "createdAt": 1779995078420
-  },
-  {
-    "id": "724ae2ed-ef75-4400-b072-6f21ccfe7ee1",
-    "name": "GPT-4.1",
-    "provider": "openai",
-    "model": "gpt-4.1",
-    "baseUrl": "",
-    "createdAt": 1779995078420
-  },
-  {
-    "id": "364d8398-16f2-4903-996b-6ed137959a34",
-    "name": "deepseek-v4-pro",
-    "provider": "fireworks",
-    "model": "accounts/fireworks/models/deepseek-v4-pro",
-    "baseUrl": "",
-    "createdAt": 1779995299277
+    "_note": "DEPRECATED — model routing is handled by the internal proxy server. This file is no longer read."
   }
 ]
