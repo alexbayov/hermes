@@ -117,3 +117,5 @@ response_store.db-wal
 .tirith-install-failed
 .tirith-install-failed
 auth.json
+*.sqlite3
+*.jsonl

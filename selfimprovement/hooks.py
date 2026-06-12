@@ -30,7 +30,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from selfimprovement.loopguard import LoopGuard
+from selfimprovement.loopguard import LoopGuard, LoopGuardBlocked
 from selfimprovement.observation import (
     JsonlObservationSink,
     Observation,
@@ -79,7 +79,7 @@ class StepContext:
         if self.loop_guard is not None:
             decision = self.loop_guard.record(payload, observation_hash=self.turn_id)
             if not decision.allowed:
-                raise self.loop_guard.LoopGuardBlocked(decision)
+                raise LoopGuardBlocked(decision)
         self._last_tool = tool_name
         self._last_payload = payload
         self._step_start = time.monotonic()
@@ -92,10 +92,14 @@ class StepContext:
         retry_count: int = 0,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        latency_ms: int | None = None,
     ) -> Observation:
         """Record completion of the last tool call."""
 
-        elapsed_ms = int((time.monotonic() - self._step_start) * 1000)
+        if latency_ms is not None:
+            elapsed_ms = latency_ms
+        else:
+            elapsed_ms = int((time.monotonic() - self._step_start) * 1000)
         result_summary = str(result)[:1000] if result is not None else ""
         obs = self.recorder.record(
             event_type=f"tool:{self._last_tool}",
