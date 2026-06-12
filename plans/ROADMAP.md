@@ -9,7 +9,7 @@
 
 ## Track A · Self-Improvement Loop
 
-**Статус: 🔄 АКТИВНАЯ РАЗРАБОТКА**  
+**Статус: ✅ ФАЗЫ 1–5 ЗАВЕРШЕНЫ**  
 Спек: `plans/gpt55-selfimprovement-loop.md`  
 Архитектура: `docs/architecture/self-improvement-loop.md`
 
@@ -17,9 +17,15 @@
 |------|-----------|-------|--------|
 | 1 | Observation + LoopGuard | `selfimprovement/observation.py`, `loopguard.py` | ✅ Done |
 | 2 | Assessment + Strategy | `selfimprovement/assessment.py`, `strategy.py` | ✅ Done |
-| 3 | Validation + Rollback | `selfimprovement/validation.py`, `rollback.py` | 🔄 PR #14 |
-| 4 | Modification engine | `selfimprovement/modification.py` | 📋 Next |
-| 5 | Orchestrator + HTTP API | `selfimprovement/selfimprovement.py` | 📋 Backlog |
+| 3 | Validation + Rollback | `selfimprovement/validation.py`, `rollback.py` | ✅ Done |
+| 4 | Modification engine | `selfimprovement/modification.py` | ✅ Done |
+| 5 | Orchestrator | `selfimprovement/selfimprovement.py` | ✅ Done (PR #16) |
+
+**Follow-on — HTTP API (deferred):**
+
+| Задача | Описание | Статус |
+|------|-----------|--------|
+| HTTP observability | FastAPI эндпоинты `/health`, `/trigger`, `/status`, `/history`, `/metrics` | 📋 Backlog |
 
 ---
 
