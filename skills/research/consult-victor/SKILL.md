@@ -14,9 +14,15 @@ triggers:
 
 # Consult Victor via Odysseus
 
-## Status: Odysseus bridge BROKEN for Viktor (2025-06-08)
+## Status: All Viktor paths down (2026-06-12)
 
-The Odysseus proxy (`localhost:7000`) returns `Slack chat.postMessage error: not_authed` for all Viktor requests. **Use direct endpoint only.** Odysseus works for other models but is unusable for Viktor.
+| Path | Status | Symptom |
+|------|--------|---------|
+| Direct (`127.0.0.1:8799`) | ❌ DOWN | `Connection refused` — SSH tunnel not established |
+| Socat (`172.17.0.1:8799`) | ❌ DOWN | Empty response (curl exit 52) — socat listens but backend dead |
+| Odysseus (`localhost:7000`) | ❌ DOWN | `{"error":"Not authenticated"}` — session/auth expired for all models |
+
+**Recovery checklist:** `docker ps | grep viktor`, `ss -tlnp | grep 8799`, ask user to re-establish SSH tunnel. If all three paths fail after quick probe (≤2 min), **proceed to fallback immediately** — do not block waiting.
 
 ## When to escalate
 - **User preference**: Quick routine tasks (grep, deploy, simple edits) → stay local. Complex architecture, cross-file refactoring, non-trivial algorithms, performance bottlenecks, root-cause debugging, security review, trade-off evaluation, long-context synthesis (>50k tokens), multi-step reasoning → escalate to Victor.
@@ -24,9 +30,11 @@ The Odysseus proxy (`localhost:7000`) returns `Slack chat.postMessage error: not
 
 ## Viktor endpoints (DIRECT ONLY)
 
+> **⚠️ Port confusion warning:** `0.0.0.0:8798` is **NOT** Viktor — it is the `hermes-proxy` (Fireworks key-rotation proxy, model `hermes-fireworks`). Viktor lives on port **8799** only. Do not waste time sending requests to 8798 expecting Viktor.
+
 ### Direct endpoint (OpenAI-compatible, stateless) — port 8799 ✅ PRIMARY
 
-Two paths to the same endpoint; both are live and independent:
+**Two paths to the same endpoint; both may be DOWN independently. The SSH tunnel or socat backend may not be running.**
 - **URL (SSH tunnel)**: `http://127.0.0.1:8799/v1/chat/completions` — inside VPS
 - **URL (socat bridge)**: `http://172.17.0.1:8799/v1/chat/completions` — Docker bridge
 - **Model**: `viktor` (maps to `claude4_7_opus`)
@@ -41,6 +49,25 @@ Two paths to the same endpoint; both are live and independent:
 ```bash
 curl -s http://127.0.0.1:8799/v1/models -H "Authorization: Bearer viktor"
 ```
+
+**Endpoint health check (if quick test fails):**
+```bash
+# Check what is listening on 8799
+ss -tlnp | grep 8799
+# Expected: socat or python process. If nothing — endpoint is dead.
+
+# Check docker containers (Victor may run inside docker)
+docker ps | grep -i 'victor\|viktor\|claude\|opus'
+docker ps -a | grep -i 'victor\|viktor\|claude\|opus'
+
+# Check running processes
+ps aux | grep -i 'viktor\|claude'
+```
+
+**If endpoint is dead:**
+1. The SSH tunnel (`127.0.0.1:8799`) may not be established — re-establish via user's SSH config or systemd service.
+2. The socat bridge (`172.17.0.1:8799`) forwards to `127.0.0.1:8799` — if the backend is dead, socat still listens but returns empty responses (curl exit 52) or connection refused (exit 7).
+3. The Victor inference container/service may need restart — this is outside agent scope; **inform the user immediately** and offer local fallback.
 
 **Python pattern (direct endpoint, recommended):**
 ```python
@@ -75,7 +102,23 @@ python3 /root/.hermes/skills/research/consult-victor/scripts/viktor_query.py -f 
 python3 /root/.hermes/skills/research/consult-victor/scripts/viktor_query.py "Question" --endpoint http://172.17.0.1:8799/v1/chat/completions
 ```
 
-### Odysseus (native bridge) — port 7000 ❌ BROKEN for Viktor
+### OmniGate (tertiary fallback) — port 8888 ⚠️ NOT Viktor
+
+When all Viktor paths are down and the task is **not** ENI/SOUL-related, OmniGate on `http://0.0.0.0:8888/v1/chat/completions` provides DeepSeek (`deepseek-chat`) and other models. These are **weaker than Opus** — suitable for quick scaffolding, basic refactoring, or `LoopGuard`-class utilities, **not** for complex architecture or large cross-file coordination.
+
+**Usage:**
+```bash
+curl -s http://0.0.0.0:8888/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-chat","messages":[{"role":"user","content":"..."}],"max_tokens":2000}'
+```
+
+**Limitations:**
+- DeepSeek tends to over-explain; add `"respond concisely, code only"` to prompts.
+- No guarantee of production-quality output — always review generated code.
+- OmniGate does **not** include Victor/Viktor — do not query `model: viktor` here.
+
+### Odysseus (native bridge) — port 7000 ❌ DOWN for all models
 
 - **Status**: Returns `{"response":"[proxy error: Slack chat.postMessage error: not_authed]"}` for all Viktor requests
 - **Works for**: Other models (not Viktor)
@@ -152,16 +195,55 @@ Victor also refuses tasks he deems dangerous (e.g., weapon instructions, malware
     echo "All Viktor paths down — proceeding locally"
   fi
   ```
-- **Self-execution fallback**: When Victor is unreachable, proceed with the task using the current model. Document the decision and any assumptions so the user can review. Do not block waiting for Victor if the user said "do it" or "спроси Victor" — attempt once, then execute.
+- **Endpoint dead despite socat listening**: `ss -tlnp | grep 8799` may show `socat` holding the port, but the backend (SSH tunnel → Victor inference) can still be dead. Socat accepts connections then has nowhere to forward, causing empty responses (curl exit 52). Always check `docker ps` or `ps aux` for the actual Victor process. See `references/endpoint-troubleshooting.md` for full diagnosis script.
+See `references/port-confusion-8798-vs-8799.md` to distinguish Viktor from the Fireworks proxy on the adjacent port.
+- **Time limit on endpoint probing**: Do NOT spend more than 2 minutes checking endpoint health. Quick curl + `ss` check is enough. If dead, inform user and fallback to local execution — extended probing wastes time and frustrates the user. This was a major pain point in 2026-06-11 session. **2026-06-12 update**: All three paths (127.0.0.1:8799, 172.17.0.1:8799, localhost:7000) failed simultaneously. Probing each with multiple curl variants, docker ps, and ss consumed 5+ minutes and produced no actionable result beyond "Victor is down". **Rule**: one quick probe per endpoint (curl --max-time 2), aggregate, report, fallback.
+- **Transparency during probing**: After 2–3 failed probes (curl refused, no docker container, no matching process), **stop and report to the user** what was checked and ask for direction. Do NOT silently iterate for 5+ minutes digging through unrelated services (e.g., port 5000 `toolsapi`, port 8798 `hermes-proxy`, port 7000 Odysseus). The user gets frustrated by long silent investigation loops without explanation.
+- **Self-execution fallback (mandatory)**: When **all** Victor paths are down and the user has explicitly asked for the task to proceed (`"спроси Victor"`, `"кидай ему"`, `"do it"`), **do not wait**. The user expects results, not a status report that Victor is down. Immediate actions:
+  1. **Quick probe** (≤2 min): test all three paths once → aggregate → report to user "Victor is down, proceeding with self-execution".
+  2. **Assess task scope**: if the task is architecture design / multi-file coordination → proceed **incrementally** (one file at a time, validate each with Python syntax check).
+  3. **Use available resources**: OmniGate DeepSeek for boilerplate scaffolding, current model (kimi-k2.6, etc.) for production code.
+  4. **Document assumptions**: tell user you are implementing without Victor and which parts are self-authored vs auto-generated.
+  5. **Never say "I can't do this without Victor"** — the user will be frustrated. Victor is a consultant, not a hard dependency.
 - **Session poisoning — refusal persists:** If Victor refused in a session, all subsequent requests in the same session will also be refused, even with completely rephrased prompts. Victor does not "forget" context by command. **Always create a fresh Odysseus session (`POST /api/session`) after any refusal.** Never retry in the same session. For direct endpoint, this is not an issue (stateless) — but still use fresh generic questions.
-- **Never suggest giving up when Victor refuses.** The user explicitly wants persistence: "STOP offering to surrender/give up when a task is hard." When Victor refuses, immediately try: (1) direct endpoint with fresh atomic question, (2) Odysseus with fresh session and generic question, (3) parallel fresh sessions with different angles, (4) implement autonomously. Never say "Victor refused, let's forget it" or "let's do something else" — the user will be frustrated.
+- **Never suggest giving up when Victor refuses or is down.** The user explicitly wants persistence: "STOP offering to surrender/give up when a task is hard." When Victor refuses, try: (1) direct endpoint with fresh atomic question, (2) Odysseus with fresh session and generic question, (3) parallel fresh sessions with different angles. When Victor is **down** (all endpoints dead), immediately proceed to self-execution. Never say "Victor refused, let's forget it", "Victor is down, we can't do this", or "let's do something else" — the user will be frustrated.
 - **Odysseus stale sessions (endpoint mismatch):** Reusing an old session that was created with a different endpoint (e.g., `atlascloud_deepseek_v4_pro`) will fail with "No model selected" or "endpoint removed". Always create a fresh session per task.
 - **Form vs JSON for Odysseus session creation**: `POST /api/session` expects `application/x-www-form-urlencoded`, not JSON. The `endpoint_id` and `model` fields must be in the form body. `POST /api/chat` expects JSON.
 - **Session listing**: `GET /api/sessions` returns existing sessions but does not create new ones. Use `POST /api/session` (singular) to create.
 - **Response format mismatch**: Odysseus returns `{"response":"..."}`, not OpenAI `{"choices":[{"message":{"content":"..."}}]}`. Direct endpoint returns OpenAI format. Do not mix them up.
 - **Direct endpoint models list**: `GET /v1/models` on the direct endpoint returns `{"object":"list","data":[{"id":"viktor"}]}` — this is a good quick probe.
 
-## Prompt discipline
+## Manual Delegation to User-Managed External Model
+
+When all Victor paths are down and the user prefers to use their own access to a strong external model (e.g., GPT-5.5, Claude Desktop, Cursor Pro, etc.), craft a **single comprehensive, self-contained prompt** that the user can copy-paste manually. This was proven in the 2026-06-12 self-improvement-loop session.
+
+### Prompt structure
+
+The prompt must include everything the external model needs to produce production-ready output without any context from past sessions:
+
+1. **Role & Context** — who the model is (e.g., "You are a staff-level system architect")
+2. **Explicit Deliverables** — exact files, classes, functions expected
+3. **Technical Requirements** — stack versions, frameworks, patterns
+4. **Data Models** — Pydantic models, DB schemas, enums
+5. **Architecture Principles** — fail-safe, observability, backward compatibility
+6. **Integration Points** — how this module connects to the existing system
+7. **Output Format** — Markdown with Mermaid/PlantUML diagrams + full code blocks
+8. **Quality Gates** — type hints, docstrings, error handling, test coverage targets, security constraints
+9. **No-Go List** — things the model must NOT do (eval, arbitrary code execution, external API calls)
+
+### Post-delegation workflow
+
+After the user gets the response:
+1. Receive the generated `.md` from the user (as a file upload or paste)
+2. Extract code blocks into actual files using the agent's file tools
+3. Validate each file with Python syntax check (`python3 -m py_compile`)
+4. Run type checks (`mypy`) and unit tests if configured
+5. Commit to a feature branch, open PR, and proceed to merge
+
+> **User preference**: Russian, informal, warm tone. Compact results, autonomous coding.
+
+See `references/manual-external-delegation-template.md` for a concrete example from the self-improvement-loop session. The prompt was 5.9 KB and produced a full 8-component architecture with code.
+
 - **Context**: Provide 3–5 key files, error snippets, or design constraints. Keep under 5k tokens if possible.
 - **Question**: One specific ask. Avoid "fix everything" — split into sequential calls.
 - **Language**: Russian or English as needed; Victor handles both.

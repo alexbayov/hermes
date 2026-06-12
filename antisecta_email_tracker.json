@@ -1,0 +1,19 @@
+{
+  "used_addresses": {
+    "a.bayov": "ecomagent",
+    "b.bayov": "kiro_abuse",
+    "c.bayov": "kiro_ambassador",
+    "d.bayov": "kiro_ambassador",
+    "e.bayov": "kiro_ambassador",
+    "f.bayov": "kiro_ambassador_submitted",
+    "g.bayov": "kimchi",
+    "h.bayov": "kimchi"
+  },
+  "next_letter": 105,
+  "service_map": {
+    "ecomagent": "a.bayov@antisecta.com",
+    "kiro_abuse": "b.bayov@antisecta.com",
+    "kiro_ambassador": "f.bayov@antisecta.com",
+    "kimchi": "g.bayov@antisecta.com"
+  }
+}

@@ -92,6 +92,9 @@ MIGRATIONS = {
         END;
         INSERT INTO messages_fts(messages_fts) VALUES ('rebuild');
     """,
+    7: """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_unique ON messages(session_id, turn_id, role);
+    """,
 }
 
 

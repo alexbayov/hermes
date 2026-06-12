@@ -19,6 +19,7 @@ Activate this skill when:
 - A new website target needs a declarative browser scenario (signup, form fill, onboarding, data extraction, QA flows).
 - An existing YAML scenario needs a new step or action.
 - You're debugging a failed run and need to interpret artifacts (`failure.png`, `trace.zip`).
+- You encounter a CAPTCHA during browser automation (see also `web-form-automation` child skill for CapMonster integration).
 
 **Do NOT use** when: you need a new action type (that's a code change in `actions.py`), or the engine itself needs modification.
 

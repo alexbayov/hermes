@@ -26,7 +26,7 @@ version: 1.2
 
 ## Scripts
 - `init_db.py` — initialize schema (run once)
-- `migrate_schema.py` — idempotent schema migrations with backup-first safety (v6: FTS5 + indexes for decisions/artifacts/issues, retention_runs)
+- `migrate_schema.py` — idempotent schema migrations with backup-first safety (v7: messages UNIQUE index + FTS5 + retention_runs + indexes)
 - `persist.py` — unified turn logging with decisions/artifacts/issues (journal.log dual-write with full dict payloads)
 - `semantic_search.py` — FTS5 + sqlite-vec hybrid search (BM25 + cosine similarity, RRF fusion, resumable backfill)
 - `validate_last_turn.py` — startup integrity check (gaps, missing assistant turn, active session)
@@ -38,6 +38,7 @@ version: 1.2
 - `compact_parents.py` — archive old sessions (Tier-1: >10 closed; Tier-2: >2000 messages)
 - `backup_db.py` — atomic VACUUM INTO backup + WAL + JSONL journal
 - `auto_commit.py` — watch skills/ changes and auto-commit/push to origin/main
+- `test_crash_recovery.py` — deterministic fault-injection test: simulates crash (journal written, DB corrupted), runs validate_and_repair, asserts full recovery
 - `apply_triggers.py` — idempotent SQLite AFTER triggers for op_log audit (INSERT/UPDATE/DELETE logging with json_object snapshots)
 - `db_utils.py` — production connection helpers (WAL, FK, thread-local, tx())
 ## Session start (REQUIRED, FIRST COMMAND)
@@ -139,7 +140,7 @@ python3 /root/.hermes/scripts/validate_and_repair.py --session-id <SESSION_ID>  
 
 ## Schema migrations
 ```bash
-python3 /root/.hermes/scripts/migrate_schema.py --target 6   # apply up to v6 (FTS5 + retention_runs + indexes)
+python3 /root/.hermes/scripts/migrate_schema.py --target 7   # apply up to v7 (messages UNIQUE + FTS5 + retention_runs + indexes)
 python3 /root/.hermes/scripts/migrate_schema.py --no-backup  # skip backup (dangerous)
 ```
 
