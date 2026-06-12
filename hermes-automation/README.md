@@ -44,3 +44,19 @@ JSON schema marker:
 This JSON boundary is intentionally separate from Python dataclass internals so
 `hermes-agent` can call the runner as a tool/subprocess and update task state
 without importing Playwright-dependent modules.
+
+## Blocker detection
+
+The runner detects common human/security gates and reports them instead of
+continuing blindly:
+
+- `captcha_visible`
+- `two_factor_required`
+- `phone_verification_required`
+- `passkey_required`
+- `email_verification_required`
+- `rate_limited`
+
+Detection only marks the run as blocked; it does not solve or bypass these
+checks. The JSON result includes `blocked_reason` and `blocker` so the main
+Hermes agent can update task state and ask for human/email handling.
