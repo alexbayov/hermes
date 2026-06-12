@@ -4,6 +4,15 @@ Workspace: `/home/alex/hermes/` | Profile: `profile/` | Upstream: `~/.hermes/her
 
 ---
 
+## 0. Development Roadmap → [`plans/ROADMAP.md`](plans/ROADMAP.md)
+
+| Track | Статус |
+|---|---|
+| Self-Improvement Loop (`selfimprovement/`) | 🔄 Phase 3 — PR #14 |
+| Memory System v2 (`scripts/`) | ⏸ P0 готово · P1+ не начато |
+
+---
+
 ## 1. Protocols → `docs/`
 
 | Protocol | File |
@@ -37,7 +46,7 @@ Latest: `profile/decision-log/2026-05-29.jsonl`
 ## 3. Current Config → `profile/config.yaml`
 
 Key settings:
-- Provider: `openai-api` via Fireworks (`kimi-k2p6`)
+- Provider: `openai-api` via Kimi proxy (`kimi-k2p6` + others)
 - Terminal backend: `local`, timeout 180s
 - Memory: enabled, 2200 char limit, flush after 6 turns
 - Session reset: both idle (24h) + at 04:00
@@ -69,3 +78,19 @@ hermes-desktop --no-sandbox --ozone-platform=wayland
 ```
 
 Launcher `bin/hermes-clean` sets `HERMES_HOME=/home/alex/hermes/profile`, sources `.env`, aliases `FIREWORKS_API_KEY` → `OPENAI_API_KEY`, then execs `hermes`.
+
+## 6. Module Map
+
+| Директория | Назначение | Статус |
+|---|---|---|
+| `hermes-agent/` | Upstream core (форк Nous Research) | ✅ Активный |
+| `core/` | Preflight-проверки (`hrm23_preflight.py`) | ✅ Активный |
+| `selfimprovement/` | Self-improvement loop — Track A | 🔄 Активная разработка |
+| `scripts/` | Memory & DB утилиты | ✅ Активный |
+| `workflow-engine/` | Workflow skill (SKILL.md; код в upstream) | 📚 Только доки |
+| `hermes-automation/` | Тест-харнес и sandbox app | 🚧 В процессе |
+| `migrations/` | SQL-миграции схемы | ✅ Активный |
+| `skills/` | Workspace skills (пусто — живут в upstream) | ➡️ Upstream |
+| `docs/` | Протоколы агента | ✅ Активный |
+| `plans/` | Планы разработки — см. `plans/ROADMAP.md` | 📋 См. ROADMAP |
+| `profile/` | Runtime конфиг, память, decision log | ✅ Активный |
