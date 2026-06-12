@@ -62,6 +62,8 @@ def result_to_dict(
         "final_url": result.final_url,
         "config_hash": result.config_hash,
         "error": result.error,
+        "blocked_reason": result.blocked_reason,
+        "blocker": result.blocker,
         "artifacts": {
             "dir": result.artifacts_dir,
             "trace": result.trace_path,

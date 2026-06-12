@@ -13,6 +13,7 @@ from typing import Any
 
 import yaml
 
+from harness.capabilities.blockers import detect_blocker
 from harness.capabilities.browser import launch_context, new_page
 from harness.capabilities.click import assert_success
 from harness.capabilities.redaction import Redactor
@@ -51,6 +52,8 @@ class ExecutionResult:
     error: str | None = None
     action_results: list[ActionResult] = field(default_factory=list)
     trace_path: str | None = None
+    blocked_reason: str | None = None
+    blocker: dict[str, Any] | None = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -80,6 +83,18 @@ def _parse_visible_role(success_cond: dict) -> tuple[str, str] | None:
 def _reset_run(task_id: str, state_dir: str | Path) -> None:
     from harness.capabilities.state import reset_checkpoint
     reset_checkpoint(state_dir, task_id)
+
+
+def _mark_blocked_if_detected(result: ExecutionResult, page) -> bool:
+    """Attach structured blocker info to result if page shows a known gate."""
+    blocker = detect_blocker(page)
+    if blocker is None:
+        return False
+    result.blocked_reason = blocker.reason
+    result.blocker = blocker.to_dict()
+    if not result.error:
+        result.error = f"Blocked by {blocker.reason}"
+    return True
 
 
 # ── Core Executor ────────────────────────────────────────────────────────────
@@ -225,6 +240,7 @@ def run_site_config(
                     + (result.action_results[-1].error if result.action_results else "unknown")
                 )
                 result.completed_steps = completed_steps
+                _mark_blocked_if_detected(result, page)
                 final_url_safe = _safe_url(page)
                 break
 
@@ -242,6 +258,7 @@ def run_site_config(
                 except Exception as e:
                     result.error = f"Step '{step_id}' postcondition failed: {e}"
                     result.completed_steps = completed_steps
+                    _mark_blocked_if_detected(result, page)
                     final_url_safe = _safe_url(page)
                     break
 
@@ -260,6 +277,7 @@ def run_site_config(
                     "config_hash": config_hash,
                     "current_step": step_id,
                     "done_steps": completed_steps,
+                    "status": "active",
                     "data": redactor.redact_fields(fields, secret_fields),
                 },
             )
@@ -271,7 +289,28 @@ def run_site_config(
     except Exception as e:
         result.error = str(e)
         result.completed_steps = completed_steps
+        _mark_blocked_if_detected(result, page)
         final_url_safe = _safe_url(page)
+
+    if not result.success and result.blocked_reason:
+        try:
+            save_checkpoint(
+                state_dir,
+                task_id,
+                {
+                    "task_id": task_id,
+                    "site": config.get("name"),
+                    "config_hash": config_hash,
+                    "current_step": completed_steps[-1] if completed_steps else None,
+                    "done_steps": completed_steps,
+                    "status": "blocked",
+                    "blocked_reason": result.blocked_reason,
+                    "blocker": result.blocker,
+                    "data": redactor.redact_fields(fields, secret_fields),
+                },
+            )
+        except Exception as e:
+            logger.warning("failed to save blocked checkpoint: %s", e)
 
     # Save trace + failure screenshot on failure
     if not result.success:
