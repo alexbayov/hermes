@@ -89,6 +89,7 @@ Launcher `bin/hermes-clean` sets `HERMES_HOME=/home/alex/hermes/profile`, source
 | `scripts/` | Memory & DB утилиты | ✅ Активный |
 | `workflow-engine/` | Workflow skill (SKILL.md; код в upstream) | 📚 Только доки |
 | `hermes-automation/` | Тест-харнес и sandbox app | 🚧 В процессе |
+| `skills/web-automation/register-account/` | Safe account registration skill for automation recipes | ✅ Активный |
 | `migrations/` | SQL-миграции схемы | ✅ Активный |
 | `skills/` | Workspace skills (пусто — живут в upstream) | ➡️ Upstream |
 | `docs/` | Протоколы агента | ✅ Активный |
